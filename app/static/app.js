@@ -902,15 +902,23 @@ function markdown(text) {
 /* Console v2 controls: responsive task views, screenshot zoom, and reliable confirmations. */
 let mobileTab = "screen";
 let shotZoom = 1;
+let shotPan = { x: 0, y: 0 };
+let draggingShot = null;
 let pendingAttention = null;
 function setMobileTab(tab) {
   mobileTab = tab;
   $("run-view").dataset.mobileTab = tab;
   for (const b of document.querySelectorAll("[data-mobile-tab]")) b.setAttribute("aria-pressed", String(b.dataset.mobileTab === tab));
 }
-function resetShotZoom() { shotZoom = 1; renderShotZoom(); }
+function resetShotZoom() { shotZoom = 1; shotPan = { x: 0, y: 0 }; renderShotZoom(); }
 function renderShotZoom() {
-  $("shot-transform").style.transform = `scale(${shotZoom})`;
+  const frame = $("screen");
+  const maxX = (frame.clientWidth * (shotZoom - 1)) / 2;
+  const maxY = (frame.clientHeight * (shotZoom - 1)) / 2;
+  shotPan.x = Math.max(-maxX, Math.min(maxX, shotPan.x));
+  shotPan.y = Math.max(-maxY, Math.min(maxY, shotPan.y));
+  $("shot-transform").style.transform = `translate(${shotPan.x}px, ${shotPan.y}px) scale(${shotZoom})`;
+  frame.classList.toggle("zoomed", shotZoom > 1);
   $("screen-zoom-reset").textContent = Math.round(shotZoom * 100) + "%";
   $("screen-zoom-out").disabled = shotZoom <= 1;
   $("screen-zoom-in").disabled = shotZoom >= 3;
@@ -948,6 +956,26 @@ for (const b of document.querySelectorAll("[data-mobile-tab]")) b.addEventListen
 $("screen-zoom-in").addEventListener("click", () => changeShotZoom(.25));
 $("screen-zoom-out").addEventListener("click", () => changeShotZoom(-.25));
 $("screen-zoom-reset").addEventListener("click", resetShotZoom);
+const screenFrame = $("screen");
+screenFrame.addEventListener("pointerdown", (event) => {
+  if (shotZoom <= 1 || !event.isPrimary) return;
+  draggingShot = { id:event.pointerId, x:event.clientX, y:event.clientY };
+  screenFrame.setPointerCapture(event.pointerId);
+});
+screenFrame.addEventListener("pointermove", (event) => {
+  if (!draggingShot || draggingShot.id !== event.pointerId) return;
+  shotPan.x += event.clientX - draggingShot.x;
+  shotPan.y += event.clientY - draggingShot.y;
+  draggingShot.x = event.clientX;
+  draggingShot.y = event.clientY;
+  renderShotZoom();
+});
+function endShotDrag(event) {
+  if (draggingShot?.id === event.pointerId) draggingShot = null;
+}
+screenFrame.addEventListener("pointerup", endShotDrag);
+screenFrame.addEventListener("pointercancel", endShotDrag);
+
 $("attention-cancel").addEventListener("click", () => submitAttention("cancel"));
 $("attention-continue").addEventListener("click", () => submitAttention("continue"));
 
