@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Web Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <button class="wordmark" id="home" type="button">Web Agent</button>
+    <nav class="nav">
+      <button type="button" id="nav-new">新任务</button>
+      <button type="button" id="nav-history">历史</button>
+    </nav>
+  </header>
+
+  <main class="page">
+    <!-- 首页：还没开始任务时 -->
+    <section id="home-view">
+      <h1 class="display">让它替你<br>操作网页。</h1>
+      <p class="lede">描述你想完成的事。它会先拟一份计划给你过目，再打开浏览器一步一步做给你看；提交、付款这类关键操作，会先问你。</p>
+      <div class="label">试试这些</div>
+      <div class="rows" id="examples"></div>
+    </section>
+
+    <!-- 历史记录 -->
+    <section id="history-view" hidden>
+      <h1 class="display">历史</h1>
+      <div class="rows" id="history"></div>
+    </section>
+
+    <!-- 一次运行 -->
+    <section id="run-view" hidden>
+      <h1 class="run-title" id="title"></h1>
+      <div class="meta" id="meta"></div>
+      <div class="columns">
+        <div class="left">
+          <div class="block" id="plan-block" hidden>
+            <div class="label">计划</div>
+            <div class="plan" id="plan"></div>
+            <div class="pill-row" id="plan-actions"></div>
+          </div>
+          <div class="block">
+            <div class="label">过程</div>
+            <div class="log" id="log"></div>
+          </div>
+          <div class="block" id="result-block" hidden>
+            <div class="label">结果</div>
+            <div id="result"></div>
+          </div>
+        </div>
+        <div class="right">
+          <div class="frame" id="screen">
+            <img id="shot" alt="Agent 当前看到的网页">
+            <span class="click-ring" id="ring" hidden></span>
+            <div class="frame-empty" id="screen-empty">画面会出现在这里</div>
+          </div>
+          <div class="caption">
+            <span class="caption-url" id="url"></span>
+            <span><button type="button" class="link" id="follow-live" hidden>回到实时</button> <span id="counter"></span></span>
+          </div>
+          <div class="filmstrip" id="filmstrip"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="dock">
+    <form class="dock-inner" id="composer">
+      <div class="options" id="options" hidden>
+        <label class="field field-wide">
+          <span>起始网址</span>
+          <input id="opt-url" type="text" spellcheck="false">
+        </label>
+        <label class="field">
+          <span>模型</span>
+          <select id="opt-model"></select>
+        </label>
+        <div class="field">
+          <span>思考深度</span>
+          <div class="tabs" id="opt-thinking" role="radiogroup" aria-label="思考深度"></div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="opt-plan" class="switch">
+          <span><b>先拟定计划</b>开始前给你过目，可以修改</span>
+        </label>
+        <label class="toggle">
+          <input type="checkbox" id="opt-cache" class="switch">
+          <span><b>使用缓存</b>同样的任务做成功过，就照着上次的做法直接回放，几秒完成</span>
+        </label>
+        <label class="toggle">
+          <input type="checkbox" id="opt-auto" class="switch">
+          <span><b>自动确认</b>提交、购买不再询问。任何网站都能访问，打开有风险</span>
+        </label>
+      </div>
+      <div class="composer">
+        <textarea id="query" rows="1" placeholder="描述一个任务，比如：在会议室网站预订明天下午的 A 会议室"></textarea>
+        <div class="composer-bar">
+          <span class="hint" id="target-hint"></span>
+          <button type="button" class="link" id="toggle-options">选项</button>
+          <button type="submit" class="pill dark" id="send">开始 →</button>
+        </div>
+      </div>
+    </form>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

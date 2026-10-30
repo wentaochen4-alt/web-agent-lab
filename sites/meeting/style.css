@@ -1,0 +1,62 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+  font-size: 18px;
+  color: #1f2328;
+  background: #f6f7f9;
+}
+header {
+  background: #2f5bd3;
+  color: #fff;
+  padding: 24px 48px;
+}
+header h1 { margin: 0; font-size: 28px; }
+.tag { margin: 6px 0 0; opacity: 0.85; font-size: 14px; }
+main {
+  max-width: 760px;
+  margin: 32px auto;
+  background: #fff;
+  border-radius: 12px;
+  padding: 32px 40px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+h2 { margin-top: 0; }
+.rooms { list-style: none; padding: 0; margin: 0; }
+.rooms li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+.rooms li:last-child { border-bottom: none; }
+.rooms span { display: block; color: #6b7280; font-size: 15px; margin-top: 4px; }
+.btn {
+  display: inline-block;
+  background: #2f5bd3;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 22px;
+  font-size: 17px;
+  text-decoration: none;
+  cursor: pointer;
+}
+form label { display: block; margin: 18px 0; }
+form input[type="text"] {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  font-size: 17px;
+  border: 1px solid #c9ced6;
+  border-radius: 8px;
+}
+fieldset { border: 1px solid #c9ced6; border-radius: 8px; padding: 12px 18px; }
+label.radio { margin: 8px 0; }
+.ok { color: #137333; font-size: 24px; font-weight: 600; }
+.error { color: #b3261e; font-size: 20px; }
+dl { display: grid; grid-template-columns: 120px 1fr; gap: 10px 16px; }
+dt { color: #6b7280; }
+dd { margin: 0; font-weight: 600; }

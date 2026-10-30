@@ -1,0 +1,12 @@
+[Unit]
+Description=Web Agent local test site (127.0.0.1:8770)
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/web-agent-lab
+ExecStart=/usr/bin/python3 -m http.server 8770 --bind 127.0.0.1 --directory sites/meeting
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

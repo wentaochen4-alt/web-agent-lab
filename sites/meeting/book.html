@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>填写预订信息</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>填写预订信息</h1>
+    <p class="tag">本地测试站 · 仅用于 Agent 实验</p>
+  </header>
+  <main>
+    <p>正在预订：<strong id="room-name"></strong></p>
+    <form action="confirm.html" method="get">
+      <input type="hidden" name="room" id="room">
+      <label>日期（格式 YYYY-MM-DD）
+        <input type="text" name="date" placeholder="例如 2026-11-05">
+      </label>
+      <fieldset>
+        <legend>时段</legend>
+        <label class="radio"><input type="radio" name="slot" value="am"> 上午 9:00–12:00</label>
+        <label class="radio"><input type="radio" name="slot" value="pm"> 下午 14:00–17:00</label>
+        <label class="radio"><input type="radio" name="slot" value="eve"> 晚上 19:00–21:00</label>
+      </fieldset>
+      <label>预订人
+        <input type="text" name="name" placeholder="请输入姓名">
+      </label>
+      <button type="submit" class="btn">提交预订</button>
+    </form>
+    <p><a href="index.html">← 返回会议室列表</a></p>
+  </main>
+  <script>
+    const room = new URLSearchParams(location.search).get("room") || "A";
+    document.getElementById("room").value = room;
+    document.getElementById("room-name").textContent = room + " 会议室";
+  </script>
+</body>
+</html>

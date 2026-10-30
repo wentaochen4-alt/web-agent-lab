@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.DS_Store
+
+# 每次运行的截图和日志、缓存的配方：都是本机数据，不上传
+runs/
+cache/
+
+# 凭证和环境
+.env
+.venv/
+deploy/*.secret

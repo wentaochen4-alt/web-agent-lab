@@ -1,0 +1,18 @@
+[Unit]
+Description=Web Agent web app (127.0.0.1:8791)
+After=network.target web-agent-site.service
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/web-agent-lab
+# 服务器没有屏幕，浏览器只能无窗口运行
+Environment=PLAYWRIGHT_HEADLESS=1
+# 不让 Agent 访问服务器本机和内网的其他服务
+Environment=BLOCK_PRIVATE_NETWORK=1
+ExecStart=/home/ubuntu/web-agent-lab/computer-use-preview/.venv/bin/python -m uvicorn app.server:app --host 127.0.0.1 --port 8791
+Restart=on-failure
+# 服务器只有 2GB 内存，给其他服务留出余量
+MemoryMax=1200M
+
+[Install]
+WantedBy=multi-user.target

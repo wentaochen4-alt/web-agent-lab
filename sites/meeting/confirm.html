@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>预订结果</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>预订结果</h1>
+    <p class="tag">本地测试站 · 仅用于 Agent 实验</p>
+  </header>
+  <main id="result"></main>
+  <script>
+    const p = new URLSearchParams(location.search);
+    const room = (p.get("room") || "").trim();
+    const date = (p.get("date") || "").trim();
+    const slot = p.get("slot") || "";
+    const name = (p.get("name") || "").trim();
+    const slotText = { am: "上午 9:00–12:00", pm: "下午 14:00–17:00", eve: "晚上 19:00–21:00" }[slot];
+    const box = document.getElementById("result");
+
+    // 同样的输入总是得到同样的编号，方便事后核对 Agent 报的编号对不对
+    function bookingId(s) {
+      let h = 5381;
+      for (const ch of s) h = ((h * 33) ^ ch.codePointAt(0)) >>> 0;
+      return "BK-" + h.toString(16).toUpperCase().padStart(8, "0").slice(-6);
+    }
+
+    function addParagraph(cls, text) {
+      const el = document.createElement("p");
+      el.className = cls;
+      el.textContent = text;
+      box.appendChild(el);
+    }
+
+    if (!room || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !slotText || !name) {
+      addParagraph("error", "信息不完整或日期格式不对，请返回重新填写。");
+    } else {
+      addParagraph("ok", "预约成功");
+      const dl = document.createElement("dl");
+      const rows = [
+        ["预约编号", bookingId([room, date, slot, name].join("|"))],
+        ["会议室", room + " 会议室"],
+        ["日期", date],
+        ["时段", slotText],
+        ["预订人", name],
+      ];
+      for (const [label, value] of rows) {
+        const dt = document.createElement("dt");
+        dt.textContent = label;
+        const dd = document.createElement("dd");
+        dd.textContent = value;
+        dl.appendChild(dt);
+        dl.appendChild(dd);
+      }
+      box.appendChild(dl);
+    }
+
+    const back = document.createElement("p");
+    back.innerHTML = '<a href="index.html">返回首页</a>';
+    box.appendChild(back);
+  </script>
+</body>
+</html>
