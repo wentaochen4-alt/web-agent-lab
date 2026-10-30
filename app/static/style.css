@@ -462,3 +462,56 @@ textarea::placeholder, input::placeholder { color: var(--ink-4); }
   .options { grid-template-columns: 1fr; }
   .hint { display: none; }
 }
+
+
+/* Agent console v2: mobile-first interaction, while preserving desktop layout. */
+.screen-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;font-size:13px;color:var(--ink-3)}
+.screen-toolbar>div{display:flex;gap:5px}
+.screen-tool{min-height:38px;min-width:42px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:16px}
+#screen-zoom-reset{min-width:58px;font-size:12px}
+.frame{touch-action:pan-y}
+.shot-transform{position:absolute;inset:0;transform-origin:center center;will-change:transform}
+.shot-transform img{display:block;width:100%;height:100%;object-fit:contain}
+.mobile-run-tabs{display:none}
+.attention-panel{position:fixed;z-index:31;bottom:116px;left:50%;transform:translateX(-50%);width:min(680px,calc(100% - 32px));padding:18px 20px;background:#fff;border:2px solid var(--ink);border-radius:16px;box-shadow:0 12px 40px #0002}
+.attention-panel[hidden]{display:none}
+.attention-copy strong{font-size:17px}
+.attention-copy p{font-size:14px;line-height:1.6;color:var(--ink-3);margin:8px 0 15px;overflow-wrap:anywhere}
+.attention-actions{display:flex;gap:10px}
+.attention-actions button{min-height:46px;flex:1;border-radius:12px;border:1px solid var(--ink);background:#fff;font-size:14px}
+#attention-continue{background:var(--ink);color:#fff}
+.attention-actions button:disabled{opacity:.5}
+#attention-error{margin:8px 0 0;color:#ae2626;font-size:13px}
+@media(max-width:600px){
+  .page{padding:8px 16px 200px}
+  .topbar{padding:0 16px}
+  .run-title{font-size:clamp(28px,7.5vw,40px)}
+  .columns{margin-top:15px;display:flex;flex-direction:column;gap:18px}
+  .mobile-run-tabs{display:flex;gap:6px;margin-top:20px;border-bottom:1px solid var(--line)}
+  .mobile-run-tabs button{border:0;background:transparent;border-bottom:2px solid transparent;padding:12px 14px;min-height:44px;font-size:14px}
+  .mobile-run-tabs button[aria-pressed="true"]{border-bottom-color:var(--ink);font-weight:600}
+  #run-view[data-mobile-tab="screen"] .left{display:none}
+  #run-view[data-mobile-tab="plan"] .right{display:none}
+  .right{order:0;min-width:0}
+  .screen-toolbar{font-size:14px}
+  .screen-tool{min-width:44px;min-height:44px}
+  .frame{border-radius:12px}
+  .caption{font-size:12px}
+  .step-text,.act-detail,.card-text{font-size:14px;line-height:1.7}
+  .step-note,.note,.thought{font-size:13px}
+  .pill,.link{min-height:40px}
+  .dock{padding:0 12px calc(12px + env(safe-area-inset-bottom))}
+  .composer{border-radius:20px;padding:12px;flex-wrap:wrap;gap:6px}
+  .composer textarea{font-size:16px;flex-basis:100%;min-height:28px}
+  .composer-bar{width:100%;justify-content:space-between}
+  .options{max-height:min(60dvh,480px);overflow:auto;overscroll-behavior:contain;border-radius:14px}
+  .field input,.field select{min-height:44px;font-size:16px}
+  .tabs button{min-height:44px}
+  .attention-panel{bottom:calc(112px + env(safe-area-inset-bottom));padding:16px;max-height:calc(100dvh - 160px);overflow:auto}
+  .attention-actions{flex-direction:column-reverse}
+  .attention-actions button{min-height:48px}
+}
+@media(prefers-reduced-motion:reduce){.shot-transform{will-change:auto}}
+
+.frame.zoomed{touch-action:none;cursor:grab}
+.frame.zoomed:active{cursor:grabbing}
