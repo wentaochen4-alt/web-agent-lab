@@ -242,6 +242,8 @@ function updateSendButton() {
   const running = view && view.live && view.running;
   $("send").textContent = running ? "停止" : "开始 →";
   $("send").classList.toggle("dark", !running);
+  $("query").disabled = Boolean(running);
+  $("query").placeholder = running ? "当前任务正在执行" : "描述一个任务，比如：预订明天下午的会议室";
 }
 
 // ---------- 历史 ----------
@@ -339,6 +341,9 @@ function openRun(id, live) {
   $("url").textContent = "";
   $("counter").textContent = "";
   show("run");
+  hideAttention();
+  resetShotZoom();
+  setMobileTab("screen");
   renderMeta();
   updateSendButton();
 
@@ -430,12 +435,12 @@ function handle(e) {
       addNote("遇到需要确认的操作，已停下");
       break;
     case "awaiting":
-      if (e.kind === "plan") planAwaiting();
-      else addAwaitCard(e);
+      if (e.kind === "plan") { planAwaiting(); setMobileTab("plan"); }
+      else { addAwaitCard(e); if (view.live && view.running) showAttention(e.kind, e.action, e.text); }
       break;
     case "decision":
       if (e.kind === "plan") planDecided(e);
-      else resolveCard(e);
+      else { resolveCard(e); if (pendingAttention?.kind === e.kind) hideAttention(); }
       break;
     case "cache_hit":
       addNote(`这个任务做成功过，照着上次的 ${e.steps} 步直接回放，不调用模型`);
@@ -738,7 +743,7 @@ function addAwaitCard(e) {
   const row = el("div", "pill-row");
   const send = (value) => (ev) => {
     for (const b of row.querySelectorAll("button")) b.disabled = true;
-    postDecision(value);
+    postDecision(value).then(r => { if (!r.ok) throw new Error("请求失败"); }).catch(() => { for (const b of row.querySelectorAll("button")) b.disabled = false; });
   };
   row.append(
     pill(isConfirm ? "取消" : "结束", send("cancel")),
@@ -819,6 +824,7 @@ function showLive(e) {
 
 // ---------- 结束 ----------
 function finish(e) {
+  hideAttention();
   view.running = false;
   for (const s of $("log").querySelectorAll(".act.current")) s.classList.remove("current");
   view.plan.awaiting = false;
@@ -891,5 +897,58 @@ function markdown(text) {
   flushList();
   return out.join("");
 }
+
+
+/* Console v2 controls: responsive task views, screenshot zoom, and reliable confirmations. */
+let mobileTab = "screen";
+let shotZoom = 1;
+let pendingAttention = null;
+function setMobileTab(tab) {
+  mobileTab = tab;
+  $("run-view").dataset.mobileTab = tab;
+  for (const b of document.querySelectorAll("[data-mobile-tab]")) b.setAttribute("aria-pressed", String(b.dataset.mobileTab === tab));
+}
+function resetShotZoom() { shotZoom = 1; renderShotZoom(); }
+function renderShotZoom() {
+  $("shot-transform").style.transform = `scale(${shotZoom})`;
+  $("screen-zoom-reset").textContent = Math.round(shotZoom * 100) + "%";
+  $("screen-zoom-out").disabled = shotZoom <= 1;
+  $("screen-zoom-in").disabled = shotZoom >= 3;
+}
+function changeShotZoom(amount) {
+  shotZoom = Math.max(1, Math.min(3, Math.round((shotZoom + amount) * 10) / 10));
+  renderShotZoom();
+}
+function showAttention(kind, action, explanation) {
+  pendingAttention = { kind, runId: view?.id };
+  $("attention-title").textContent = kind === "login" ? "需要你登录" : kind === "confirm" ? "需要确认关键操作" : "Agent 需要帮助";
+  $("attention-text").textContent = [action, explanation].filter(Boolean).join(" · ");
+  $("attention-panel").hidden = false;
+  $("attention-error").hidden = true;
+  $("attention-continue").textContent = kind === "login" ? "已登录，继续" : kind === "confirm" ? "确认并继续" : "继续执行";
+  setMobileTab("plan");
+}
+function hideAttention() { pendingAttention = null; $("attention-panel").hidden = true; }
+async function submitAttention(value) {
+  if (!pendingAttention || !view || pendingAttention.runId !== view.id) return;
+  const buttons = [$("attention-cancel"), $("attention-continue")];
+  buttons.forEach(b => b.disabled = true);
+  try {
+    const response = await postDecision(value);
+    if (!response.ok) throw new Error((await response.json().catch(()=>({}))).detail || "请求失败");
+    hideAttention();
+  } catch (error) {
+    $("attention-error").textContent = "操作未提交：" + error.message + "。请重试。";
+    $("attention-error").hidden = false;
+  } finally {
+    buttons.forEach(b => b.disabled = false);
+  }
+}
+for (const b of document.querySelectorAll("[data-mobile-tab]")) b.addEventListener("click", () => setMobileTab(b.dataset.mobileTab));
+$("screen-zoom-in").addEventListener("click", () => changeShotZoom(.25));
+$("screen-zoom-out").addEventListener("click", () => changeShotZoom(-.25));
+$("screen-zoom-reset").addEventListener("click", resetShotZoom);
+$("attention-cancel").addEventListener("click", () => submitAttention("cancel"));
+$("attention-continue").addEventListener("click", () => submitAttention("continue"));
 
 init();
