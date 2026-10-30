@@ -63,3 +63,18 @@ computer-use-preview/.venv/bin/python -m uvicorn app.server:app --port 8780
 ## 部署到服务器
 
 `deploy/` 里有两个 systemd 配置：测试站和网页版都只监听本机端口，再由反向代理（比如 Caddy）加上密码对外提供。服务器上会打开 `BLOCK_PRIVATE_NETWORK`，Agent 无法访问服务器本机和内网的其他服务。服务器没有屏幕，浏览器以无窗口模式运行，所以“卡住时人工接管”在服务器上不可用。
+
+官方参考实现固定的 Playwright 1.55 不支持 Ubuntu 26.04，在这类系统上装完依赖后需要再升级一次：
+
+```bash
+computer-use-preview/.venv/bin/pip install -U playwright
+sudo computer-use-preview/.venv/bin/playwright install-deps chromium
+computer-use-preview/.venv/bin/playwright install chromium
+```
+
+服务器上调用 Gemini 用的是服务器用户自己的应用默认凭证：
+
+```bash
+gcloud auth application-default login --no-launch-browser
+gcloud auth application-default set-quota-project 你的项目ID
+```
