@@ -156,7 +156,7 @@ class UIAgent(core.LoggedAgent):
         return True
 
 
-class UIRecordingAgent(UIAgent):
+class UIRecordingAgent(cache.PlanFailureMixin, UIAgent):
     """边做边录制：你在网页上确认过的关键操作会记进配方，回放时同样要确认。"""
 
     def _get_safety_confirmation(self, safety):
@@ -312,9 +312,16 @@ def _run_agent(state: RunState, trajectory: LiveTrajectory, req: RunRequest) -> 
             status = agent.run(req.max_steps, req.max_minutes)
             answer = agent.final_answer
         if status == "COMPLETE" and computer.cacheable and computer.recipe:
-            recipe = cache.make_recipe(req.query, req.start_url, computer.recipe, state.run_id)
-            cache.save_recipe(recipe)
-            trajectory.log({"event": "cache_saved", "steps": len(recipe["steps"])})
+            page = computer._page
+            ok, reason = cache.check_success(
+                req.query, answer, page.url, page.inner_text("body"), agent.failed_plan_steps
+            )
+            if ok:
+                recipe = cache.make_recipe(req.query, req.start_url, computer.recipe, state.run_id)
+                cache.save_recipe(recipe)
+                trajectory.log({"event": "cache_saved", "steps": len(recipe["steps"])})
+            else:
+                trajectory.log({"event": "cache_skipped", "reason": reason})
     return status, answer
 
 

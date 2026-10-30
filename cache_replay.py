@@ -17,6 +17,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 import run_local as core
 from google import genai
@@ -144,7 +145,53 @@ class RecordingPlaywright(core.SandboxedPlaywright):
         return super().drag_and_drop(*args, **kwargs)
 
 
-class RecordingAgent(core.LoggedAgent):
+class PlanFailureMixin:
+    """记下计划里有几步被模型标成“没做成”，写缓存前要看。"""
+
+    failed_plan_steps = 0
+
+    def handle_action(self, action, use_legacy_actions):
+        if action.name == core.report_plan_progress.__name__ and (action.args or {}).get("status") == "failed":
+            self.failed_plan_steps += 1
+        return super().handle_action(action, use_legacy_actions)
+
+
+# 网址里出现这些词，基本可以认定停在了登录、验证码这类拦截页面
+BLOCKED_PAGE_HINTS = ("login", "signin", "sign-in", "sign_in", "passport", "captcha", "verify", "challenge")
+
+
+def check_success(query: str, answer: str | None, url: str, page_text: str, failed_steps: int) -> tuple[bool, str]:
+    """模型说“做完了”不代表真做成了（比如被拦在登录页，它也会回一段说明）。写缓存前再确认一遍。"""
+    if failed_steps:
+        return False, "计划里有没做成的步骤"
+    parsed = urlparse(url)
+    where = (parsed.hostname or "") + parsed.path
+    if any(hint in where.lower() for hint in BLOCKED_PAGE_HINTS):
+        return False, "最后停在了登录或验证页面"
+    try:
+        client = genai.Client(
+            vertexai=os.environ.get("USE_VERTEXAI", "0").lower() in ("true", "1"),
+            project=os.environ.get("VERTEXAI_PROJECT"),
+            location=os.environ.get("VERTEXAI_LOCATION"),
+        )
+        prompt = (
+            f"任务：{query}\n\nAgent 的最终回答：{answer}\n\n最终页面的文字：\n{page_text[:6000]}\n\n"
+            "这个任务是否已经真正完成了（而不是被登录、验证码、报错等拦住，或者只完成了一部分）？只回答 YES 或 NO。"
+        )
+        response = client.models.generate_content(
+            model=ANSWER_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(thinking_config=types.ThinkingConfig(thinking_level="MINIMAL")),
+        )
+        verdict = (response.text or "").strip().upper()
+    except Exception as e:  # 判断不了就保守处理：不缓存
+        return False, f"没能确认任务是否完成（{str(e)[:60]}）"
+    if not verdict.startswith("YES"):
+        return False, "检查后发现任务其实没有完成"
+    return True, ""
+
+
+class RecordingAgent(PlanFailureMixin, core.LoggedAgent):
     def _get_safety_confirmation(self, safety):
         result = super()._get_safety_confirmation(safety)
         if result == "CONTINUE":
@@ -296,7 +343,15 @@ def run_agent_and_record(args, allowed, trajectory) -> tuple[str, str | None, di
         status = agent.run(args.max_steps, args.max_minutes)
         recipe = None
         if status == "COMPLETE" and computer.cacheable and computer.recipe:
-            recipe = make_recipe(args.query, args.initial_url, computer.recipe, trajectory.run_dir.name)
+            page = computer._page
+            ok, reason = check_success(
+                args.query, agent.final_answer, page.url, page.inner_text("body"), agent.failed_plan_steps
+            )
+            if ok:
+                recipe = make_recipe(args.query, args.initial_url, computer.recipe, trajectory.run_dir.name)
+            else:
+                print(f"[不写缓存] {reason}")
+                trajectory.log({"event": "cache_skipped", "reason": reason})
         return status, agent.final_answer, recipe
 
 

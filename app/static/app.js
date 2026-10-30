@@ -439,6 +439,9 @@ function handle(e) {
     case "cache_saved":
       addNote(`已记住这次的做法（${e.steps} 步），下次同样的任务直接回放`);
       break;
+    case "cache_skipped":
+      addNote(`这次的做法没有记住：${e.reason}`);
+      break;
     case "error":
       addCard("出了点问题", [e.message]);
       break;
