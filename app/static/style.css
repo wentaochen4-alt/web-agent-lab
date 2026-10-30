@@ -512,3 +512,6 @@ textarea::placeholder, input::placeholder { color: var(--ink-4); }
   .attention-actions button{min-height:48px}
 }
 @media(prefers-reduced-motion:reduce){.shot-transform{will-change:auto}}
+
+.frame.zoomed{touch-action:none;cursor:grab}
+.frame.zoomed:active{cursor:grabbing}
