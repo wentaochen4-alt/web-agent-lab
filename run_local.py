@@ -213,6 +213,7 @@ class LoggedAgent(BrowserAgent):
         self.stop_requested = False  # 网页版的“停止”按钮会把它设为 True
         self.final_answer: str | None = None
         self.plan_status: dict[int, str] = {}  # 计划每一项最新汇报的状态
+        self._login_declined = False  # 用户说过不登录，就不再因为登录页暂停
         self._recent_actions: list[str] = []
         self._last_logged_turn = None
         # 思考越浅每一步越快；默认 low，难任务可以调成 medium / high
@@ -319,7 +320,12 @@ class LoggedAgent(BrowserAgent):
         # intent 是模型写的说明文字，每次措辞不同，比较“是不是同一个动作”时去掉
         key = {k: v for k, v in args.items() if k not in ("intent", "safety_decision")}
         self._recent_actions.append(action.name + json.dumps(key, sort_keys=True, default=str))
-        return super().handle_action(action, use_legacy_actions)
+        result = super().handle_action(action, use_legacy_actions)
+        # 实测模型到了登录页不会主动调用 request_login，而是想办法绕开（换移动版、换搜索引擎）。
+        # 所以由程序判断：动作做完停在登录页，就直接暂停请用户登录
+        if isinstance(result, EnvState) and is_login_page(result.url) and not self._login_declined:
+            return self._handle_login_request("打开的页面需要登录")
+        return result
 
     def _is_stuck(self) -> bool:
         states = self._browser_computer.recent_states[-STUCK_WINDOW:]
@@ -374,6 +380,7 @@ class LoggedAgent(BrowserAgent):
         self._trajectory.log({"event": "login_request", "reason": reason})
         if not self._wait_for_login(reason):
             self._trajectory.log({"event": "login_declined"})
+            self._login_declined = True
             return {"ok": False, "message": "用户没有登录。请说明任务卡在需要登录这一步，然后结束任务。"}
         self._browser_computer.save_login_state()
         state = self._browser_computer.current_state()
