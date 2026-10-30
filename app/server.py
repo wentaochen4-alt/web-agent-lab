@@ -25,7 +25,8 @@ import run_local as core
 STATIC = Path(__file__).resolve().parent / "static"
 RUNS = core.LAB / "runs"
 RUN_ID = re.compile(r"^\d{8}-\d{6}$")
-STEP_FILE = re.compile(r"^step_\d+\.png$")
+STEP_FILE = re.compile(r"^(step_\d+\.png|live\.jpg)$")
+LIVE_INTERVAL = 1.5  # 等人处理时，每隔几秒刷新一次实时画面
 
 MODELS = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"]
 THINKING = ["minimal", "low", "medium", "high"]
@@ -80,10 +81,14 @@ class RunState:
             self.done = True
             self.cond.notify_all()
 
-    def wait_for_decision(self) -> str:
+    def wait_for_decision(self, tick=None) -> str:
+        """等网页上的按钮。给了 tick 就每隔 LIVE_INTERVAL 秒调用它一次（刷新实时画面），
+        tick 返回 True 表示不用等按钮了，直接当作“继续”。"""
         self._decision_ready.clear()
         self.awaiting = True
-        self._decision_ready.wait()
+        while not self._decision_ready.wait(timeout=LIVE_INTERVAL if tick else None):
+            if tick():
+                self.decide("continue")
         self.awaiting = False
         return self._decision
 
@@ -118,9 +123,29 @@ class UIAgent(core.LoggedAgent):
         super().__init__(**kwargs)
         self._state = state
 
-    def _ask_user(self, kind: str, text: str, action: str | None = None) -> str:
+    def _ask_user(self, kind: str, text: str, action: str | None = None, live: bool = False, done_when=None) -> str:
+        """在网页上弹卡片等你决定。live=True 时一边等一边把浏览器画面实时推给网页；
+        done_when(网址) 返回 True 时不用等按钮，自动继续。"""
         self._trajectory.log({"event": "awaiting", "kind": kind, "text": text, "action": action})
-        value = self._state.wait_for_decision()
+        tick = None
+        if live:
+            frame = 0
+
+            def tick() -> bool:
+                nonlocal frame
+                page = self._browser_computer._page
+                try:
+                    shot = page.screenshot(type="jpeg", quality=70)
+                except Exception:
+                    return False  # 截图偶尔超时，跳过这一帧
+                (self._trajectory.run_dir / "live.jpg").write_bytes(shot)
+                frame += 1
+                # 实时画面只推给正在看的网页，不写进 trajectory.jsonl（太多了）
+                self._state.push({"event": "live", "n": frame, "url": page.url})
+                return bool(done_when and done_when(page.url))
+
+            tick()  # 先推一帧，不用等第一个间隔
+        value = self._state.wait_for_decision(tick)
         self._trajectory.log({"event": "decision", "kind": kind, "value": value})
         return value
 
@@ -142,8 +167,23 @@ class UIAgent(core.LoggedAgent):
         return "TERMINATE"
 
     def _wait_for_human(self) -> bool:
-        text = "页面一直没有变化。你可以在弹出的浏览器窗口里手动处理（比如登录、关掉弹窗），处理完点“继续”。"
-        return self._ask_user("stuck", text) == "continue"
+        text = "页面一直没有变化。你可以在弹出的浏览器窗口里手动处理（比如关掉弹窗），处理完点“继续”。"
+        return self._ask_user("stuck", text, live=True) == "continue"
+
+    def _wait_for_login(self, reason: str) -> bool:
+        text = "请在右边的实时画面里登录（比如用手机 App 扫码），登录成功后会自动继续。登录状态会保存在本机，下次不用再登。"
+        # 先到过登录页、后来又离开了，就当作登录成功。
+        # （模型可能在还没跳到登录页时就喊人登录，不能一开始就判成功）
+        seen_login_page = False
+
+        def done(url: str) -> bool:
+            nonlocal seen_login_page
+            if core.is_login_page(url):
+                seen_login_page = True
+                return False
+            return seen_login_page
+
+        return self._ask_user("login", text, reason, live=True, done_when=done) == "continue"
 
     def plan_with_user(self, initial: core.EnvState) -> bool:
         """先让模型出计划，等用户在网页上确认或修改；用户取消就返回 False。"""

@@ -67,7 +67,7 @@ computer-use-preview/.venv/bin/python -m uvicorn app.server:app --host 127.0.0.1
 
 **卡住处理**：连续 3 步页面毫无变化（或重复同一个动作）算卡住。第一次卡住会提醒模型换办法；还卡住的话，在终端里运行时会暂停，请你在浏览器窗口里手动处理（登录、关弹窗等），按回车继续，输入 q 结束；非交互运行则直接停止（状态 `STUCK`）。
 
-结束状态：`COMPLETE` 完成 / `GAVE_UP` 模型没给答案就结束了 / `STUCK` 卡住 / `TIMEOUT` 超时 / `MAX_STEPS` 超步数 / `SAFETY_STOP` 需要确认被停下。
+结束状态：`COMPLETE` 完成 / `INCOMPLETE` 给了回答但计划里有一步没做成 / `GAVE_UP` 模型没给答案就结束了 / `STUCK` 卡住 / `TIMEOUT` 超时 / `MAX_STEPS` 超步数 / `SAFETY_STOP` 需要确认被停下。
 | `--initial_url` | `http://127.0.0.1:8770/index.html` | 必须在白名单内 |
 | `--allow` | 空 | 额外放行的外部域名（含子域名），例如 `--allow wikipedia.org wikimedia.org`。白名单外的跳转会被拦下，Agent 留在原页面 |
 | `--highlight_mouse` | 关 | 在点击位置画红圈 |

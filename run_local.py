@@ -38,6 +38,15 @@ STUCK_WINDOW = 3  # 连续几步页面毫无变化（或重复同一个动作）
 ALLOWED_ORIGINS = ("http://127.0.0.1:8770", "http://localhost:8770")
 # 部署在服务器上时打开：不让 Agent 访问服务器本机和内网的其他服务（本地测试站除外）
 BLOCK_PRIVATE_NETWORK = os.environ.get("BLOCK_PRIVATE_NETWORK", "").lower() in ("1", "true")
+# 用户登录过的网站，登录状态（cookies）存在这里，下次运行自动带上。只在本机，不进 git
+AUTH_STATE = LAB / "auth" / "storage_state.json"
+# 网址里出现这些词，基本可以认定是登录页
+LOGIN_URL_HINTS = ("login", "signin", "sign-in", "sign_in", "passport")
+
+
+def is_login_page(url: str) -> bool:
+    parsed = urlparse(url)
+    return any(hint in (parsed.netloc + parsed.path).lower() for hint in LOGIN_URL_HINTS)
 
 
 @functools.lru_cache(maxsize=512)
@@ -97,6 +106,13 @@ class SandboxedPlaywright(PlaywrightComputer):
 
     def __enter__(self):
         super().__enter__()
+        # 以前登录过：把保存的 cookies 放进浏览器，再刷新起始页，让它以登录身份打开
+        # （官方代码在 __enter__ 里已经打开了起始页，没法在那之前传登录状态，所以这里补一次刷新）
+        if AUTH_STATE.exists():
+            cookies = json.loads(AUTH_STATE.read_text(encoding="utf-8")).get("cookies", [])
+            if cookies:
+                self._context.add_cookies(cookies)
+                self._page.reload()
         # 白名单之外的请求全部拦截，Agent 就跑不出本地测试站；服务器上还要拦住内网
         if not self._allow_all or BLOCK_PRIVATE_NETWORK:
             self._context.route("**/*", self._guard)
@@ -110,6 +126,12 @@ class SandboxedPlaywright(PlaywrightComputer):
             print(f"[已拦截] {url}")
             self._trajectory.log({"event": "blocked", "url": url})
             route.abort()
+
+    def save_login_state(self):
+        """用户登录成功后调用：把整个浏览器的 cookies 存下来，文件只有自己能读。"""
+        AUTH_STATE.parent.mkdir(exist_ok=True)
+        self._context.storage_state(path=AUTH_STATE)
+        AUTH_STATE.chmod(0o600)
 
     def navigate(self, url: str) -> EnvState:
         # 跳转到白名单外的网址：不报错退出，留在原页面，让模型自己换办法
@@ -158,6 +180,18 @@ def report_plan_progress(step: int, status: str, note: str = "") -> dict:
     return {"ok": True}
 
 
+def request_login(reason: str) -> dict:
+    """遇到必须登录才能继续的页面（比如登录页、扫码登录）时调用，请用户本人登录。
+
+    不要自己输入账号、密码或验证码，也不要因为需要登录就结束任务。
+    调用后会暂停，等用户登录完成；返回登录后的当前页面，接着完成任务。
+
+    Args:
+        reason: 一句话说明为什么需要登录，比如“京东搜索需要先登录”。
+    """
+    return {"ok": True}
+
+
 def _numbered(steps: list[str]) -> str:
     return "\n".join(f"{i}. {s}" for i, s in enumerate(steps, 1))
 
@@ -178,6 +212,7 @@ class LoggedAgent(BrowserAgent):
         self.safety_stopped = False
         self.stop_requested = False  # 网页版的“停止”按钮会把它设为 True
         self.final_answer: str | None = None
+        self.plan_status: dict[int, str] = {}  # 计划每一项最新汇报的状态
         self._recent_actions: list[str] = []
         self._last_logged_turn = None
         # 思考越浅每一步越快；默认 low，难任务可以调成 medium / high
@@ -186,10 +221,11 @@ class LoggedAgent(BrowserAgent):
         )
         self.plan: list[str] = []
         self.pending_plan: list[str] | None = None  # 运行中用户改了计划，下一轮开始前生效
-        # 官方代码的第二个工具组放自定义函数，把“报告计划进度”加进去
-        self._generate_content_config.tools[1].function_declarations.append(
-            types.FunctionDeclaration.from_callable(client=self._client, callable=report_plan_progress)
-        )
+        # 官方代码的第二个工具组放自定义函数，把“报告计划进度”和“请用户登录”加进去
+        for func in (report_plan_progress, request_login):
+            self._generate_content_config.tools[1].function_declarations.append(
+                types.FunctionDeclaration.from_callable(client=self._client, callable=func)
+            )
 
     def make_plan(self, state: EnvState) -> list[str]:
         """动手之前单独问一次模型：看着起始页，把任务拆成几步。"""
@@ -272,10 +308,13 @@ class LoggedAgent(BrowserAgent):
                     "note": args.get("note", ""),
                 }
             )
+            self.plan_status[int(args.get("step", 0))] = str(args.get("status"))
             # 模型有时会把 safety_decision 之类的附加字段也塞进来，只取需要的
             return report_plan_progress(
                 step=int(args.get("step", 0)), status=str(args.get("status", "")), note=str(args.get("note", ""))
             )
+        if action.name == request_login.__name__:
+            return self._handle_login_request(str(args.get("reason", "")))
         self._trajectory.log({"event": "action", "name": action.name, "args": args})
         # intent 是模型写的说明文字，每次措辞不同，比较“是不是同一个动作”时去掉
         key = {k: v for k, v in args.items() if k not in ("intent", "safety_decision")}
@@ -305,7 +344,8 @@ class LoggedAgent(BrowserAgent):
             types.Part(
                 text="提示：最近几步操作后页面没有任何变化，你可能卡住了。"
                 "不要重复同样的操作，换一种办法（比如滚动找别的入口、返回上一页、换个链接）。"
-                "如果遇到验证码、登录、注册等必须由人处理的情况，直接说明原因并结束任务，不要继续尝试。"
+                "如果需要登录，调用 request_login 请用户登录；"
+                "如果遇到验证码、注册等其他必须由人处理的情况，直接说明原因并结束任务，不要继续尝试。"
             )
         )
         self._reset_stuck_tracking()
@@ -320,6 +360,27 @@ class LoggedAgent(BrowserAgent):
             "（比如登录、关掉弹窗），处理完按回车让它继续；输入 q 结束：\n"
         )
         return answer.strip().lower() != "q"
+
+    def _wait_for_login(self, reason: str) -> bool:
+        """命令行版：在弹出的浏览器窗口里登录，登录完按回车。网页版会覆盖成实时画面 + 按钮。"""
+        if not sys.stdin.isatty():
+            print("[需要登录] 非交互运行，没法等人登录")
+            return False
+        answer = input(f"\n[需要登录] {reason}\n请在弹出的浏览器窗口里登录，登录完按回车让它继续；输入 q 结束：\n")
+        return answer.strip().lower() != "q"
+
+    def _handle_login_request(self, reason: str):
+        """模型请用户登录：暂停等人登录。登录成功就保存登录状态，把登录后的页面交回给模型。"""
+        self._trajectory.log({"event": "login_request", "reason": reason})
+        if not self._wait_for_login(reason):
+            self._trajectory.log({"event": "login_declined"})
+            return {"ok": False, "message": "用户没有登录。请说明任务卡在需要登录这一步，然后结束任务。"}
+        self._browser_computer.save_login_state()
+        state = self._browser_computer.current_state()
+        self._trajectory.log({"event": "login_done", "url": state.url})
+        self._reset_stuck_tracking()
+        # 返回页面状态：官方代码会把网址和截图一起交给模型
+        return state
 
     def _ask_human(self) -> bool:
         """卡住且提醒无效：请人在浏览器窗口里接管，处理完把当前页面交回给模型。"""
@@ -366,6 +427,9 @@ class LoggedAgent(BrowserAgent):
                 # 最后一轮里不是“思考”的文字才是给用户的回答
                 self.final_answer = "\n".join(self._parts_of_last_turn(thought=False)).strip() or None
                 if self.final_answer:
+                    # 模型给了回答，但计划里还有某一项最后报的是“做不下去”：不能算完成
+                    if "failed" in self.plan_status.values():
+                        return "INCOMPLETE"
                     return "COMPLETE"
                 if not asked_for_answer:
                     # Gemini 偶尔做完了却回一个空回复：追问一次，让它把结果说出来

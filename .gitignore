@@ -10,3 +10,6 @@ cache/
 .env
 .venv/
 deploy/*.secret
+
+# 保存的网站登录状态（cookies），绝不能上传
+auth/

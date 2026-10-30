@@ -9,6 +9,7 @@ const STATUS = {
   PLANNING: ["正在拟定计划", "running"],
   COMPLETE: ["已完成", "good"],
   GAVE_UP: ["没能完成", "bad"],
+  INCOMPLETE: ["没能完成", "bad"],
   STUCK: ["卡住了", "bad"],
   TIMEOUT: ["超时了", "bad"],
   MAX_STEPS: ["步数用完了", "bad"],
@@ -413,6 +414,15 @@ function handle(e) {
     case "human_takeover_done":
       addNote("你处理完了，它从当前页面继续");
       break;
+    case "live":
+      showLive(e);
+      break;
+    case "login_done":
+      addNote("登录好了，登录状态已保存，它从当前页面继续");
+      break;
+    case "login_declined":
+      addNote("你没有登录，它会说明情况后结束");
+      break;
     case "safety_auto_confirm":
       addNote("按你的设置，自动确认了一个关键操作");
       break;
@@ -718,16 +728,22 @@ function addCard(title, texts) {
 
 function addAwaitCard(e) {
   const isConfirm = e.kind === "confirm";
+  const isLogin = e.kind === "login";
   const card = isConfirm
     ? addCard("需要你确认", [`接下来要：${e.action || "执行一个关键操作"}`, e.text])
-    : addCard("它好像卡住了", [e.text]);
+    : isLogin
+      ? addCard("需要你登录", [e.action, e.text])
+      : addCard("它好像卡住了", [e.text]);
   card.dataset.kind = e.kind;
   const row = el("div", "pill-row");
   const send = (value) => (ev) => {
     for (const b of row.querySelectorAll("button")) b.disabled = true;
     postDecision(value);
   };
-  row.append(pill(isConfirm ? "取消" : "结束", send("cancel")), pill("继续", send("continue"), true));
+  row.append(
+    pill(isConfirm ? "取消" : "结束", send("cancel")),
+    pill(isLogin ? "已登录，继续" : "继续", send("continue"), true)
+  );
   card.append(row);
   view.cards.push(card);
   if (view.live && view.running) setStatus("WAITING");
@@ -739,7 +755,8 @@ function resolveCard(e) {
   if (!card) return;
   card.classList.add("resolved");
   const go = e.value === "continue";
-  card.append(el("div", "card-result", go ? "你选择了继续" : e.kind === "confirm" ? "你取消了这个操作" : "你结束了任务"));
+  const stopped = { confirm: "你取消了这个操作", login: "你选择不登录" }[e.kind] || "你结束了任务";
+  card.append(el("div", "card-result", go ? "你选择了继续" : stopped));
   if (view.running) setStatus("RUNNING");
 }
 
@@ -786,6 +803,18 @@ function showShot(index) {
     row.classList.toggle("selected", !view.following && Number(row.dataset.shot) === index);
   }
   $("follow-live").hidden = view.following || !view.running;
+}
+
+// 等你登录或接管时，后端每隔一两秒推一帧浏览器的实时画面（不进胶片条，只占用大图）
+function showLive(e) {
+  if (!view.running) return;
+  view.following = true;
+  $("screen-empty").hidden = true;
+  $("shot").src = `/api/runs/${view.id}/files/live.jpg?n=${e.n}`;
+  $("url").textContent = e.url;
+  $("counter").textContent = "实时画面";
+  $("ring").hidden = true;
+  for (const t of $("filmstrip").children) t.classList.remove("selected");
 }
 
 // ---------- 结束 ----------
