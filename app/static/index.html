@@ -37,6 +37,7 @@
     <section id="run-view" hidden>
       <h1 class="run-title" id="title"></h1>
       <div class="meta" id="meta"></div>
+      <div class="mobile-run-tabs" id="mobile-run-tabs" role="group" aria-label="任务详情视图"><button type="button" data-mobile-tab="screen" aria-pressed="true">浏览器</button><button type="button" data-mobile-tab="plan" aria-pressed="false">计划与过程</button></div>
       <div class="columns">
         <div class="left">
           <div class="block" id="plan-block" hidden>
@@ -54,9 +55,9 @@
           </div>
         </div>
         <div class="right">
+          <div class="screen-toolbar"><span>浏览器画面</span><div><button type="button" class="screen-tool" id="screen-zoom-out" aria-label="缩小截图">−</button><button type="button" class="screen-tool" id="screen-zoom-reset" aria-label="重置截图缩放">100%</button><button type="button" class="screen-tool" id="screen-zoom-in" aria-label="放大截图">＋</button></div></div>
           <div class="frame" id="screen">
-            <img id="shot" alt="Agent 当前看到的网页">
-            <span class="click-ring" id="ring" hidden></span>
+            <div class="shot-transform" id="shot-transform"><img id="shot" alt="Agent 当前看到的网页"><span class="click-ring" id="ring" hidden></span></div>
             <div class="frame-empty" id="screen-empty">画面会出现在这里</div>
           </div>
           <div class="caption">
@@ -69,6 +70,7 @@
     </section>
   </main>
 
+  <section class="attention-panel" id="attention-panel" role="region" aria-label="待确认操作" hidden><div class="attention-copy"><strong id="attention-title">需要你确认</strong><p id="attention-text"></p></div><div class="attention-actions"><button type="button" id="attention-cancel">取消操作</button><button type="button" id="attention-continue">确认并继续</button></div><p id="attention-error" role="alert" hidden></p></section>
   <div class="dock">
     <form class="dock-inner" id="composer">
       <div class="options" id="options" hidden>
