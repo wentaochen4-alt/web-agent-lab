@@ -924,7 +924,7 @@ function renderShotZoom() {
   $("screen-zoom-in").disabled = shotZoom >= 3;
 }
 function changeShotZoom(amount) {
-  shotZoom = Math.max(1, Math.min(3, Math.round((shotZoom + amount) * 10) / 10));
+  shotZoom = Math.max(1, Math.min(3, Math.round((shotZoom + amount) * 100) / 100));
   renderShotZoom();
 }
 function showAttention(kind, action, explanation) {
