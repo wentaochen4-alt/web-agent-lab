@@ -53,6 +53,24 @@ def is_login_page(url: str) -> bool:
     return any(hint in (parsed.netloc + parsed.path).lower() for hint in LOGIN_URL_HINTS)
 
 
+def is_local_site(url: str) -> bool:
+    """网址是不是本地测试站。拆开后按“协议 + 主机 + 端口”逐项比对，不能只比字符串开头：
+    否则 http://127.0.0.1:87701 会被当成 8770，http://127.0.0.1:8770@内网地址 也会混过去
+    （@ 前面那段其实是用户名，真正访问的是 @ 后面的主机）。"""
+    try:
+        u = urlparse(url)
+        port = u.port
+    except ValueError:  # 端口不是合法数字之类的畸形网址
+        return False
+    if u.username is not None or u.password is not None:
+        return False
+    for origin in ALLOWED_ORIGINS:
+        o = urlparse(origin)
+        if (u.scheme, u.hostname, port) == (o.scheme, o.hostname, o.port):
+            return True
+    return False
+
+
 @functools.lru_cache(maxsize=512)
 def is_private_host(host: str) -> bool:
     """域名解析到本机、内网或保留地址就算内网。解析失败的不算（浏览器自己也打不开）。"""
@@ -98,7 +116,7 @@ class SandboxedPlaywright(PlaywrightComputer):
         self.recent_states: list[tuple[str, str]] = []  # (截图哈希, 网址)，用来判断有没有卡住
 
     def is_allowed(self, url: str) -> bool:
-        if url.startswith(ALLOWED_ORIGINS):
+        if is_local_site(url):
             return True
         host = urlparse(url).hostname or ""
         if BLOCK_PRIVATE_NETWORK and host and is_private_host(host):
@@ -501,7 +519,7 @@ def main() -> int:
     host = urlparse(args.initial_url).hostname or ""
     if not (
         args.allow_all
-        or args.initial_url.startswith(ALLOWED_ORIGINS)
+        or is_local_site(args.initial_url)
         or any(host == d or host.endswith("." + d) for d in allowed_domains)
     ):
         sys.exit(f"initial_url 必须在白名单内：{ALLOWED_ORIGINS} 或 --allow 的域名")
