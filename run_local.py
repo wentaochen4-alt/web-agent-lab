@@ -35,7 +35,11 @@ from google.genai import types  # noqa: E402
 
 SCREEN_SIZE = (1440, 900)
 STUCK_WINDOW = 3  # 连续几步页面毫无变化（或重复同一个动作）就算卡住
-ALLOWED_ORIGINS = ("http://127.0.0.1:8770", "http://localhost:8770")
+# 本地测试站：8770 会议室预订，8771 模拟商城（sites/shop）
+ALLOWED_ORIGINS = (
+    "http://127.0.0.1:8770", "http://localhost:8770",
+    "http://127.0.0.1:8771", "http://localhost:8771",
+)
 # 部署在服务器上时打开：不让 Agent 访问服务器本机和内网的其他服务（本地测试站除外）
 BLOCK_PRIVATE_NETWORK = os.environ.get("BLOCK_PRIVATE_NETWORK", "").lower() in ("1", "true")
 # 用户登录过的网站，登录状态（cookies）存在这里，下次运行自动带上。只在本机，不进 git

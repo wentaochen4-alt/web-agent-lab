@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>确认订单</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="top"></header>
+  <main>
+    <h2>确认订单</h2>
+    <div id="summary"></div>
+    <form id="form" action="order.html" method="get">
+      <label>收货人
+        <input type="text" name="name" placeholder="请输入姓名">
+      </label>
+      <label>手机号（11 位）
+        <input type="text" name="phone" placeholder="例如 13800000000">
+      </label>
+      <label>收货地址
+        <input type="text" name="addr" placeholder="省 / 市 / 区 / 详细地址">
+      </label>
+      <fieldset>
+        <legend>配送方式</legend>
+        <label class="radio"><input type="radio" name="ship" value="std"> 标准配送（3–5 天）· 免运费</label>
+        <label class="radio"><input type="radio" name="ship" value="fast"> 加急配送（次日达）· 运费 ¥15</label>
+      </fieldset>
+      <fieldset>
+        <legend>支付方式（模拟，不会真实扣款）</legend>
+        <label class="radio"><input type="radio" name="pay" value="cod"> 货到付款</label>
+        <label class="radio"><input type="radio" name="pay" value="balance"> 模拟余额支付</label>
+      </fieldset>
+      <p class="error" id="err"></p>
+      <button type="submit" class="btn">提交订单</button>
+    </form>
+    <p><a href="cart.html">← 返回购物车</a></p>
+  </main>
+  <script src="shop.js"></script>
+  <script>
+    renderHeader();
+    const cart = loadCart();
+    const summary = document.getElementById("summary");
+    if (!cart.length) {
+      summary.innerHTML = '<p class="error">购物车是空的，不能下单。</p>';
+      document.getElementById("form").hidden = true;
+    } else {
+      summary.innerHTML = `<ul class="items">` + cart.map((l) => {
+        const p = findProduct(l.id);
+        return `<li><div>${p.name}<div class="muted">${l.color}${l.size ? " / " + l.size + " 码" : ""} × ${l.qty}</div></div><span class="price">${money(p.price * l.qty)}</span></li>`;
+      }).join("") + `</ul><p class="total">商品合计：${money(cartTotal(cart))}</p>`;
+    }
+
+    // 提交前检查：缺什么就在页面上提示，不跳转
+    document.getElementById("form").addEventListener("submit", (e) => {
+      const f = new FormData(e.target);
+      let msg = "";
+      if (!f.get("name").trim()) msg = "请填写收货人。";
+      else if (!/^1\d{10}$/.test(f.get("phone").trim())) msg = "手机号应为 1 开头的 11 位数字。";
+      else if (!f.get("addr").trim()) msg = "请填写收货地址。";
+      else if (!f.get("ship")) msg = "请选择配送方式。";
+      else if (!f.get("pay")) msg = "请选择支付方式。";
+      if (msg) {
+        e.preventDefault();
+        document.getElementById("err").textContent = msg;
+      }
+    });
+  </script>
+</body>
+</html>

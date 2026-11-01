@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>小铺（本地测试商城）</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="top"></header>
+  <main>
+    <h2>热门分类</h2>
+    <div class="chips">
+      <a class="chip" href="search.html?q=跑步鞋">跑步鞋</a>
+      <a class="chip" href="search.html?q=袜子">袜子</a>
+      <a class="chip" href="search.html?q=水杯">水杯</a>
+    </div>
+    <h2>今日推荐</h2>
+    <ul class="items" id="list"></ul>
+  </main>
+  <script src="shop.js"></script>
+  <script>
+    renderHeader();
+    // 首页只放几个推荐，完整的要靠搜索
+    document.getElementById("list").innerHTML = ["p1", "p7", "p8"].map((id) => {
+      const p = findProduct(id);
+      return `<li><div><a class="name" href="item.html?id=${p.id}">${p.ad ? '<span class="ad">广告</span>' : ""}${p.name}</a>
+        <div class="muted">评分 ${p.rating} · 已售 ${p.sales}</div></div><span class="price">${money(p.price)}</span></li>`;
+    }).join("");
+  </script>
+</body>
+</html>

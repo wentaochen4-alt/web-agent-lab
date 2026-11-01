@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>下单结果</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="top"></header>
+  <main id="box"></main>
+  <script src="shop.js"></script>
+  <script>
+    renderHeader();
+    const params = new URLSearchParams(location.search);
+    const f = Object.fromEntries(["name", "phone", "addr", "ship", "pay"].map((k) => [k, (params.get(k) || "").trim()]));
+    const box = document.getElementById("box");
+    const cart = loadCart();
+
+    function addParagraph(cls, text) {
+      const el = document.createElement("p");
+      el.className = cls;
+      el.textContent = text;
+      box.appendChild(el);
+    }
+
+    if (!cart.length) {
+      addParagraph("error", "购物车是空的，没有可提交的订单。");
+    } else if (!f.name || !/^1\d{10}$/.test(f.phone) || !f.addr || !SHIPPING[f.ship] || !PAYMENT[f.pay]) {
+      addParagraph("error", "订单信息不完整，请返回重新填写。");
+    } else {
+      // 订单号由“商品清单 | 收货信息 | 配送 | 支付”哈希得出，同样的订单总是同一个号
+      const items = cart.map((l) => `${l.id}:${l.color}:${l.size || "-"}:${l.qty}`).sort().join(",");
+      const id = orderId([items, f.name, f.phone, f.addr, f.ship, f.pay].join("|"));
+      const total = cartTotal(cart) + SHIPPING[f.ship].fee;
+
+      addParagraph("ok", "下单成功");
+      const dl = document.createElement("dl");
+      const rows = [
+        ["订单号", id],
+        ["商品", cart.map((l) => `${findProduct(l.id).name}（${l.color}${l.size ? " / " + l.size + " 码" : ""}）× ${l.qty}`).join("；")],
+        ["收货人", f.name],
+        ["手机号", f.phone],
+        ["地址", f.addr],
+        ["配送", SHIPPING[f.ship].text],
+        ["支付", PAYMENT[f.pay]],
+        ["实付金额", money(total)],
+      ];
+      for (const [label, value] of rows) {
+        const dt = document.createElement("dt");
+        dt.textContent = label;
+        const dd = document.createElement("dd");
+        dd.textContent = value;
+        dl.append(dt, dd);
+      }
+      box.appendChild(dl);
+      saveCart([]);  // 下单后清空购物车
+    }
+
+    const back = document.createElement("p");
+    back.innerHTML = '<a href="index.html">返回首页</a>';
+    box.appendChild(back);
+  </script>
+</body>
+</html>

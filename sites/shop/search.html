@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>搜索结果</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="top"></header>
+  <main>
+    <h2 id="title"></h2>
+    <div class="chips" id="sort"></div>
+    <ul class="items" id="list"></ul>
+  </main>
+  <script src="shop.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const q = (params.get("q") || "").trim();
+    const sort = params.get("sort") || "default";
+    renderHeader(q);
+
+    // 关键词出现在商品名或标签里就算匹配
+    let hits = PRODUCTS.filter((p) => q && (p.name.includes(q) || p.tags.some((t) => t.includes(q) || q.includes(t))));
+    // 广告商品始终排第一（和真实电商一样），其余按所选方式排序
+    const ads = hits.filter((p) => p.ad);
+    let rest = hits.filter((p) => !p.ad);
+    if (sort === "price") rest.sort((a, b) => a.price - b.price);
+    if (sort === "rating") rest.sort((a, b) => b.rating - a.rating);
+    if (sort === "default") rest.sort((a, b) => b.sales - a.sales);
+    hits = ads.concat(rest);
+
+    document.getElementById("title").textContent = q ? `“${q}”的搜索结果（${hits.length} 件）` : "请输入关键词搜索";
+    const sorts = [["default", "综合（销量）"], ["price", "价格从低到高"], ["rating", "评分从高到低"]];
+    document.getElementById("sort").innerHTML = q ? sorts.map(([k, label]) =>
+      `<a class="chip" aria-pressed="${k === sort}" href="search.html?q=${encodeURIComponent(q)}&sort=${k}">${label}</a>`).join("") : "";
+
+    document.getElementById("list").innerHTML = hits.length ? hits.map((p) => `
+      <li><div><a class="name" href="item.html?id=${p.id}">${p.ad ? '<span class="ad">广告</span>' : ""}${p.name}</a>
+        <div class="muted">评分 ${p.rating} · 已售 ${p.sales}${p.colors.length ? " · 颜色：" + p.colors.join(" / ") : ""}</div></div>
+        <span class="price">${money(p.price)}</span></li>`).join("")
+      : (q ? '<p class="muted">没有找到相关商品，换个关键词试试。</p>' : "");
+  </script>
+</body>
+</html>

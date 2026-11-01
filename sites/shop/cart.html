@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>购物车</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="top"></header>
+  <main>
+    <h2>购物车</h2>
+    <div id="box"></div>
+  </main>
+  <script src="shop.js"></script>
+  <script>
+    renderHeader();
+    const box = document.getElementById("box");
+
+    function render() {
+      const cart = loadCart();
+      if (!cart.length) {
+        box.innerHTML = '<p class="muted">购物车是空的。</p><p><a href="index.html">去逛逛</a></p>';
+        return;
+      }
+      box.innerHTML = `<ul class="items">` + cart.map((l, i) => {
+        const p = findProduct(l.id);
+        return `<li><div><a class="name" href="item.html?id=${p.id}">${p.name}</a>
+          <div class="muted">${l.color}${l.size ? " / " + l.size + " 码" : ""} · 单价 ${money(p.price)}</div>
+          <div class="qty" style="margin-top:8px"><button type="button" data-i="${i}" data-d="-1" aria-label="减少">−</button><output>${l.qty}</output><button type="button" data-i="${i}" data-d="1" aria-label="增加">+</button>
+            <a href="#" data-del="${i}">删除</a></div></div>
+          <span class="price">${money(p.price * l.qty)}</span></li>`;
+      }).join("") + `</ul>
+        <p class="total">合计：<span class="price">${money(cartTotal(cart))}</span></p>
+        <p style="text-align:right"><a class="btn" href="checkout.html">去结算</a></p>`;
+
+      box.querySelectorAll("button[data-i]").forEach((b) => b.onclick = () => {
+        const c = loadCart();
+        const line = c[b.dataset.i];
+        line.qty = Math.max(1, line.qty + Number(b.dataset.d));
+        saveCart(c);
+        render();
+      });
+      box.querySelectorAll("a[data-del]").forEach((a) => a.onclick = (e) => {
+        e.preventDefault();
+        const c = loadCart();
+        c.splice(a.dataset.del, 1);
+        saveCart(c);
+        render();
+      });
+    }
+    render();
+  </script>
+</body>
+</html>
