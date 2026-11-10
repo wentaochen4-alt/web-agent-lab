@@ -197,7 +197,7 @@ function pauseRun() {
   fetch(`/api/runs/${view.id}/pause`, { method: "POST" })
     .then(async (r) => {
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || "请求失败");
-      renderMeta("这一步做完就暂停…");
+      renderMeta("正在暂停，等它想完这一步…");
     })
     .catch((err) => {
       view.pausing = false;

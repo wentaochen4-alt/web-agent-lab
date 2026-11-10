@@ -60,6 +60,8 @@ class LoggedAgent(BrowserAgent):
         self._login_declined = False  # 用户说过不登录，就不再因为登录页暂停
         self._recent_actions: list[str] = []
         self._last_logged_turn = None
+        self._pending_hints: list[str] = []  # 这一轮动作做完后要告诉模型的话（单独一条消息发）
+        self._skipped_actions = 0  # 因为用户要接管而没有执行的动作数
         # 思考越浅每一步越快；默认 low，难任务可以调成 medium / high
         self._generate_content_config.thinking_config = types.ThinkingConfig(
             include_thoughts=True, thinking_level=thinking_level.upper()
@@ -184,6 +186,12 @@ class LoggedAgent(BrowserAgent):
             )
         if action.name == request_login.__name__:
             return with_safety_ack(args, self._handle_login_request(str(args.get("reason", ""))))
+        if self.pause_requested:
+            # 用户已经要求暂停 / 接管：模型这一轮想做的动作不再执行，原样把当前页面交回去，
+            # 主循环马上会停下来等人。这样接管不用等它把这一步做完
+            self._skipped_actions += 1
+            self._trajectory.log({"event": "action_skipped", "name": action.name})
+            return self._browser_computer.current_state()
         self._trajectory.log({"event": "action", "name": action.name, "args": args})
         # intent 是模型写的说明文字，每次措辞不同，比较“是不是同一个动作”时去掉
         key = {k: v for k, v in args.items() if k not in ("intent", "safety_decision")}
@@ -194,6 +202,13 @@ class LoggedAgent(BrowserAgent):
                 return with_safety_ack(args, result)
         else:
             result = super().handle_action(action, use_legacy_actions)
+        failed_url = getattr(self._browser_computer, "failed_navigation", None)
+        if failed_url:
+            self._browser_computer.failed_navigation = None
+            self._pending_hints.append(
+                f"提示：刚才要打开的网址 {failed_url} 打不开（超时或连接失败），页面还停在原来的地方。"
+                "不要再试这个网址，换别的办法，比如回到搜索结果点击链接，或者换一个网址。"
+            )
         # 实测模型到了登录页不会主动调用 request_login，而是想办法绕开（换移动版、换搜索引擎）。
         # 所以由程序判断：动作做完停在登录页，就直接暂停请用户登录
         if isinstance(result, EnvState) and is_login_page(result.url) and not self._login_declined:
@@ -327,7 +342,13 @@ class LoggedAgent(BrowserAgent):
     def _pause_for_human(self, reason: str = "") -> bool:
         """暂停让人接管。reason 是出错原因，用户主动暂停时为空。人选择结束就返回 False。"""
         self.pause_requested = False
+        skipped, self._skipped_actions = self._skipped_actions, 0
         self._trajectory.log({"event": "paused", "reason": reason})
+        if reason:
+            # 出错时页面可能还卡在加载中，先停掉，否则实时画面和后面的截图都会超时
+            stop_loading = getattr(self._browser_computer, "stop_loading", None)
+            if stop_loading:
+                stop_loading()
         if not self._wait_for_pause(reason):
             return False
         if reason:
@@ -335,6 +356,11 @@ class LoggedAgent(BrowserAgent):
             while len(self._contents) > 1 and self._contents.pop().role != "model":
                 pass
             message = f"上一步运行时出了错（{reason}），可能没有做完。用户已经看过浏览器。下面是当前页面，请先确认页面状态，再继续完成任务。"
+        elif skipped:
+            message = (
+                "用户暂停了任务并接管了浏览器，你上一步想做的动作没有执行。"
+                "用户可能在浏览器里手动操作过。下面是当前页面，请以当前页面为准，继续完成任务。"
+            )
         else:
             message = "用户暂停了任务，可能在浏览器里手动操作过。下面是当前页面，请以当前页面为准，继续完成任务。"
         self._hand_back(message)
@@ -374,6 +400,10 @@ class LoggedAgent(BrowserAgent):
                     nudged = False
                     continue
                 return "STOPPED" if self.stop_requested else "ERROR"
+            if self._pending_hints and outcome != "COMPLETE":
+                # 动作的结果已经发给模型了，提示要另起一条消息（不能塞进工具返回那一轮）
+                hints, self._pending_hints = self._pending_hints, []
+                self._add_to_last_turn(types.Part(text="\n".join(hints)))
             if outcome == "COMPLETE":
                 if self.stop_requested:
                     return "STOPPED"

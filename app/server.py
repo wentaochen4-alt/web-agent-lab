@@ -96,9 +96,10 @@ class UIAgent(LoggedAgent):
         if live:
             frame = 0
             qr_seen = False  # 上一帧在页面上找到了二维码；找到过才检查过期
+            done_inputs = 0  # 执行了但还没告诉网页的接管操作数
 
             def tick() -> bool:
-                nonlocal frame, qr_seen
+                nonlocal frame, qr_seen, done_inputs
                 page = self._browser_computer._page
                 if page.is_closed():
                     return False  # 当前标签页刚被关掉（比如登录弹窗自己关了），下一轮会换到别的标签页
@@ -106,6 +107,7 @@ class UIAgent(LoggedAgent):
                 inputs = self._state.take_inputs()
                 for record in inputs:
                     run_takeover_input(page, record)
+                done_inputs += len(inputs)
                 if inputs:
                     try:
                         page.wait_for_timeout(400)  # 等页面对点击、输入做出反应，再截图
@@ -121,12 +123,16 @@ class UIAgent(LoggedAgent):
                 ):
                     self._last_qr_refresh = now
                 try:
-                    shot = page.screenshot(type="jpeg", quality=70)
+                    # 超时设短一点：页面卡住时默认要等 30 秒，这期间卡片出不来、也没法接管
+                    shot = page.screenshot(type="jpeg", quality=70, timeout=5000)
                 except Exception:
                     return False  # 截图偶尔超时，跳过这一帧
                 (self._trajectory.run_dir / "live.jpg").write_bytes(shot)
                 frame += 1
                 record = {"event": "live", "n": frame, "url": page.url}
+                if done_inputs:
+                    # 告诉网页：你的操作已经执行，这一帧是执行之后的画面
+                    record["inputs"], done_inputs = done_inputs, 0
                 # 等登录时，页面上有二维码就另外截一张清晰的，网页上放大显示
                 qr = site.grab_qr(page) if kind == "login" else None
                 qr_seen = bool(qr)
@@ -137,7 +143,6 @@ class UIAgent(LoggedAgent):
                 self._state.push(record)
                 return bool(done_when and done_when(page.url))
 
-            tick()  # 先推一帧，不用等第一个间隔
         started = time.monotonic()
         value = self._state.wait_for_decision(tick)
         self.human_wait_seconds += time.monotonic() - started
@@ -154,6 +159,10 @@ class UIAgent(LoggedAgent):
         return None
 
     def _get_safety_confirmation(self, safety):
+        if self.pause_requested:
+            # 你已经要求暂停 / 接管：这个动作不会执行（LoggedAgent.handle_action 会跳过），所以不用再问你。
+            # 这里返回 CONTINUE 只是让官方循环走到 handle_action，不代表放行
+            return "CONTINUE"
         if self._auto_confirm:
             return super()._get_safety_confirmation(safety)
         value = self._ask_user("confirm", safety.get("explanation", ""), self._pending_intent(safety))
@@ -473,15 +482,25 @@ def decide(run_id: str, decision: Decision):
 
 @app.post("/api/runs/{run_id}/input")
 def takeover_input(run_id: str, inp: TakeoverInput):
-    """接管：网页上的点击、滚动、打字。只在“需要你登录”“它好像卡住了”“已暂停”时可用。
+    """接管：网页上的点击、滚动、打字。
+    “需要你登录”“它好像卡住了”“已暂停”时直接执行；
+    Agent 正在执行时点画面，等于按了暂停：这一下先排着，它一停下来就执行（返回 pausing=True）。
     打的字不写进运行记录（可能是验证码、手机号）。"""
     state = _states.get(run_id)
-    if not state or not state.awaiting or state.awaiting_kind not in TAKEOVER_KINDS:
-        raise HTTPException(409, "现在不能接管：只有等你登录、处理卡住或暂停时可以操作")
+    if not state or state.done:
+        raise HTTPException(409, "现在不能接管：这次运行已经结束")
     if inp.type == "key" and inp.key not in TAKEOVER_KEYS:
         raise HTTPException(400, "不支持这个按键")
-    state.add_input(inp.model_dump())
-    return {"ok": True}
+    if state.awaiting:
+        if state.awaiting_kind not in TAKEOVER_KINDS:
+            raise HTTPException(409, "现在不能接管：只有等你登录、处理卡住或暂停时可以操作")
+        state.add_input(inp.model_dump())
+        return {"ok": True}
+    if not isinstance(state.agent, UIAgent) or inp.type != "click":
+        raise HTTPException(409, "现在不能接管：只有 Agent 执行时可以点画面接管，缓存回放不行")
+    state.add_input(inp.model_dump(), keep=True)
+    state.agent.pause_requested = True
+    return {"ok": True, "pausing": True}
 
 
 @app.post("/api/runs/{run_id}/plan")

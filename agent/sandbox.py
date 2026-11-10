@@ -79,6 +79,7 @@ class SandboxedPlaywright(PlaywrightComputer):
         # True：保留新标签页并切过去，模型可以用 list_tabs / switch_tab / close_tab 工具
         self.multi_tab = multi_tab
         self._closing = False
+        self.failed_navigation: str | None = None  # 刚刚没打开的网址；LoggedAgent 读完会清空
         self.recent_states: list[tuple[str, str]] = []  # (截图哈希, 网址)，用来判断有没有卡住
 
     def is_allowed(self, url: str) -> bool:
@@ -216,7 +217,27 @@ class SandboxedPlaywright(PlaywrightComputer):
             print(f"[已拦截跳转] {target}")
             self._trajectory.log({"event": "blocked", "url": target, "via": "navigate"})
             return self.current_state()
-        return super().navigate(url)
+        try:
+            return super().navigate(url)
+        except Exception as e:
+            # 网址打不开（超时、连不上）：不让整次运行出错。停掉加载，留在能截图的页面上，
+            # 把这件事记在 failed_navigation 里，LoggedAgent 会告诉模型换办法
+            reason = (str(e).splitlines() or [""])[0][:120]
+            print(f"[打不开] {target}：{reason}")
+            self._trajectory.log({"event": "navigate_failed", "url": target, "error": reason})
+            self.stop_loading()
+            self.cacheable = False  # 这一步没做成，这次的做法不能进缓存
+            self.failed_navigation = target
+            return self.current_state()
+
+    def stop_loading(self):
+        """页面卡在“加载中”时让它停下来（相当于点浏览器的 ×）。不停的话截图会一直超时。"""
+        try:
+            session = self._context.new_cdp_session(self._page)
+            session.send("Page.stopLoading")
+            session.detach()
+        except Exception:
+            pass  # 停不了就算了，后面截图失败会走原来的出错处理
 
     def current_state(self) -> EnvState:
         # 每次动作执行完，官方代码都会调用这里截图，顺便存一份到本地

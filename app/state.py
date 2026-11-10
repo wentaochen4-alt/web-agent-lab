@@ -25,6 +25,7 @@ class RunState:
         self.awaiting_kind: str | None = None  # 正在等什么：plan / confirm / stuck / login / pause
         # 接管：网页上点击、打字先排队，由跑 Agent 的线程在刷新画面时执行（Playwright 不能跨线程调用）
         self._inputs: list[dict] = []
+        self._keep_inputs = False  # 排着的操作是“点画面要求接管”时留下的，下一次等待开始时不要清掉
         self._wake = threading.Event()  # 有新的接管操作或做了决定时，叫醒等待循环，不用等满 LIVE_INTERVAL
         self.last_input_time = 0.0  # 最后一次接管操作的时间（time.monotonic）
 
@@ -43,8 +44,12 @@ class RunState:
         tick 返回 True 表示不用等按钮了，直接当作“继续”。"""
         self._decision_ready.clear()
         with self.cond:
-            self._inputs.clear()
+            if not self._keep_inputs:
+                self._inputs.clear()  # 上一次等待时没来得及执行的操作已经过时了
+            self._keep_inputs = False
         self.awaiting = True
+        if tick:
+            self._wake.set()  # 马上刷新第一帧，不用等第一个间隔
         try:
             while not self._decision_ready.is_set():
                 self._wake.wait(timeout=LIVE_INTERVAL if tick else None)
@@ -66,9 +71,11 @@ class RunState:
         self._decision_ready.set()
         self._wake.set()
 
-    def add_input(self, record: dict):
+    def add_input(self, record: dict, keep: bool = False):
+        """keep=True：Agent 还在执行时点的（点画面就接管），留到它停下来后再执行。"""
         with self.cond:
             self._inputs = self._inputs[-19:] + [record]  # 最多排 20 个，防止狂点堆积
+            self._keep_inputs = self._keep_inputs or keep
             self.last_input_time = time.monotonic()
         self._wake.set()
 

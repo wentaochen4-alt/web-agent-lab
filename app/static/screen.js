@@ -3,7 +3,7 @@
 
 import { $, el, pad } from "./util.js";
 import { TAKEOVER_KINDS, state, takeoverActive } from "./state.js";
-import { postDecision, updateSendButton } from "./ui.js";
+import { postDecision, renderMeta, updateSendButton } from "./ui.js";
 
 // 只有画面模块自己用的状态
 let shotZoom = 1;
@@ -11,6 +11,7 @@ let shotPan = { x: 0, y: 0 };
 let draggingShot = null;  // 正在拖动放大后的画面
 let pointerStart = null;  // 按下时的位置，用来区分“点击”和“拖动”
 let scrollBuffer = null;  // 攒着还没发出去的滚动
+let pendingClick = null;  // 你刚点的一下还没在画面上生效：{ timer }。生效前圆圈一直留着
 
 // ---------- 截图 ----------
 export function addShot(e) {
@@ -44,7 +45,9 @@ export function showShot(index) {
   $("url").textContent = shot.url;
   $("counter").textContent = `${pad(index + 1)} / ${pad(view.shots.length)}`;
   const ring = $("ring");
-  if (shot.ring) {
+  if (pendingClick) {
+    // 你刚点的那一下还没生效，圆圈先留在你点的位置
+  } else if (shot.ring) {
     ring.style.left = shot.ring.x / 10 + "%";
     ring.style.top = shot.ring.y / 10 + "%";
     ring.hidden = false;
@@ -72,8 +75,12 @@ export function showLive(e) {
     if (e.qr) $("attention-qr").src = `/api/runs/${view.id}/files/qr.png?n=${e.n}`;
   }
   $("url").textContent = e.url;
-  $("counter").textContent = "实时画面";
-  $("ring").hidden = true;
+  // e.inputs：这一帧是你的操作执行之后的画面
+  if (e.inputs) clearPendingClick();
+  if (!pendingClick) {
+    $("counter").textContent = e.inputs ? "实时画面 · 已执行你的操作" : "实时画面";
+    $("ring").hidden = true;
+  }
   for (const t of $("filmstrip").children) t.classList.remove("selected");
 }
 
@@ -121,28 +128,76 @@ function pointOnShot(clientX, clientY) {
   return x >= 0 && x <= 1 && y >= 0 && y <= 1 ? { x, y } : null;
 }
 
-function showTakeoverRing(p) {
+// 点击反馈：在点的位置画圈，并在画面下方写明状态。圆圈一直留到“执行之后”的那一帧画面到达
+// （showLive 里清掉）；8 秒还没等到就自己消失，免得一直挂着
+function markClick(p, text) {
+  clearPendingClick();
   const ring = $("ring");
   ring.style.left = p.x * 100 + "%";
   ring.style.top = p.y * 100 + "%";
   ring.hidden = false;
-  setTimeout(() => { ring.hidden = true; }, 800);
+  $("counter").textContent = text;
+  pendingClick = {
+    timer: setTimeout(() => {
+      pendingClick = null;
+      ring.hidden = true;
+    }, 8000),
+  };
 }
 
+function clearPendingClick() {
+  if (!pendingClick) return;
+  clearTimeout(pendingClick.timer);
+  pendingClick = null;
+  $("ring").hidden = true;
+}
+
+// 发一次接管操作。成功时返回后端的回答（pausing=true 表示 Agent 还在执行，这一下会在它停下后执行），失败返回 null
 async function sendTakeover(input) {
+  const view = state.view;
   try {
-    const response = await fetch(`/api/runs/${state.view.id}/input`, {
+    const response = await fetch(`/api/runs/${view.id}/input`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     });
-    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || "请求失败");
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || "请求失败");
     $("attention-error").hidden = true;
-    return true;
+    return data;
   } catch (error) {
-    $("attention-error").textContent = "操作没发出去：" + error.message;
-    $("attention-error").hidden = false;
-    return false;
+    clearPendingClick();
+    if (state.view !== view) return null;
+    if ($("attention-panel").hidden) {
+      // 卡片还没出来（运行中点画面接管）：错误写在标题下的状态栏
+      renderMeta("操作没发出去：" + error.message);
+    } else {
+      $("attention-error").textContent = "操作没发出去：" + error.message;
+      $("attention-error").hidden = false;
+    }
+    return null;
+  }
+}
+
+// Agent 正在执行、画面显示的是最新一步：这时点画面等于“暂停并接管”
+function canClickToTakeOver() {
+  const { view, attention } = state;
+  return !!(
+    view?.live && view.running && !attention && !view.pausing && !view.plan.awaiting &&
+    view.following && view.shots.length && view.plan.source !== "cache"
+  );
+}
+
+async function clickToTakeOver(p) {
+  const view = state.view;
+  view.pausing = true;
+  updateSendButton();
+  markClick(p, "已点击，正在交给你接管…");
+  renderMeta("正在交给你接管，等它想完这一步…");
+  const result = await sendTakeover({ type: "click", x: p.x, y: p.y });
+  if (!result && state.view === view) {
+    view.pausing = false;
+    updateSendButton();
   }
 }
 
@@ -170,6 +225,7 @@ export function showAttention(kind, action, explanation) {
 }
 
 export function hideAttention() {
+  clearPendingClick();
   state.attention = null;
   if (state.view) state.view.needsYou = false;
   updateSendButton();
@@ -227,12 +283,16 @@ export function initScreen() {
   };
   screenFrame.addEventListener("pointerup", (event) => {
     endShotDrag(event);
-    // 接管时：几乎没移动就算点击（移动多了是在拖动放大后的画面）
-    if (takeoverActive() && pointerStart && Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y) < 6) {
+    // 几乎没移动就算点击（移动多了是在拖动放大后的画面）
+    if (pointerStart && Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y) < 6) {
       const p = pointOnShot(event.clientX, event.clientY);
-      if (p) {
+      if (p && takeoverActive()) {
+        // 接管中：直接点到浏览器里
+        markClick(p, "已点击，等画面更新…");
         sendTakeover({ type: "click", x: p.x, y: p.y });
-        showTakeoverRing(p);
+      } else if (p && canClickToTakeOver()) {
+        // Agent 还在执行：点画面就是要求接管，这一下等它停下来后执行
+        clickToTakeOver(p);
       }
     }
     pointerStart = null;
@@ -260,13 +320,21 @@ export function initScreen() {
   $("takeover-send").addEventListener("click", () => {
     const text = $("takeover-text").value;
     if (!text) return;
-    sendTakeover({ type: "type", text }).then((ok) => { if (ok) $("takeover-text").value = ""; });
+    sendTakeover({ type: "type", text }).then((ok) => {
+      if (!ok) return;
+      $("takeover-text").value = "";
+      $("counter").textContent = "已输入，等画面更新…";
+    });
   });
   $("takeover-text").addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.isComposing) { event.preventDefault(); $("takeover-send").click(); }
   });
   for (const b of document.querySelectorAll("[data-takeover-key]")) {
-    b.addEventListener("click", () => sendTakeover({ type: "key", key: b.dataset.takeoverKey }));
+    b.addEventListener("click", () => {
+      sendTakeover({ type: "key", key: b.dataset.takeoverKey }).then((ok) => {
+        if (ok) $("counter").textContent = "已按键，等画面更新…";
+      });
+    });
   }
 
   $("attention-cancel").addEventListener("click", () => submitAttention("cancel"));

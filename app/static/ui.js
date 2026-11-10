@@ -43,6 +43,9 @@ export function updateSendButton() {
   $("pause").hidden = !running || view.needsYou || view.plan.awaiting;
   $("pause").disabled = Boolean(view?.pausing);
   $("pause").textContent = view?.pausing ? "正在暂停…" : "暂停";
+  // Agent 执行时点画面就能接管：给画面一个“能点”的光标（缓存回放不行）
+  const canTakeOver = running && !view.needsYou && !view.pausing && !view.plan.awaiting && view.plan.source !== "cache";
+  $("run-view").dataset.canTakeOver = String(Boolean(canTakeOver));
 }
 
 // ---------- 把你的决定（继续 / 取消）发给后端 ----------

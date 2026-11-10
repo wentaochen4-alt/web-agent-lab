@@ -135,7 +135,7 @@ class LoginSite:
             x, y, w, h = box
             pad = 12  # 二维码四周要留白，否则有的扫码器认不出来
             return page.screenshot(
-                type="png", clip={"x": max(0, x - pad), "y": max(0, y - pad), "width": w + 2 * pad, "height": h + 2 * pad}
+                type="png", timeout=5000, clip={"x": max(0, x - pad), "y": max(0, y - pad), "width": w + 2 * pad, "height": h + 2 * pad}
             )
         except Exception:
             return None  # 页面正在跳转之类，跳过这一帧
