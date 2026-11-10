@@ -482,6 +482,19 @@ textarea::placeholder, input::placeholder { color: var(--ink-4); }
 #attention-continue{background:var(--ink);color:#fff}
 .attention-actions button:disabled{opacity:.5}
 #attention-error{margin:8px 0 0;color:#ae2626;font-size:13px}
+/* 接管：等你登录或处理卡住时，画面可以点、可以输入 */
+.takeover[hidden]{display:none}
+.takeover{margin:0 0 15px}
+#attention-qr{display:block;width:220px;height:220px;margin:0 auto 12px;border:1px solid var(--line);border-radius:8px;image-rendering:pixelated;background:#fff}
+#attention-qr[hidden]{display:none}
+.takeover-hint{font-size:13px;line-height:1.6;color:var(--ink-3);margin:0 0 10px}
+.takeover-type{display:flex;gap:8px}
+.takeover-type input{flex:1;min-width:0;min-height:40px;padding:0 12px;border:1px solid var(--line);border-radius:10px;font-size:14px}
+.takeover-type button{min-height:40px;padding:0 14px;border:1px solid var(--line);border-radius:999px;background:#f2f2f2;font-size:13px}
+.takeover-note{display:block;box-sizing:border-box;width:100%;min-height:40px;margin-top:8px;padding:0 12px;border:1px solid var(--line);border-radius:10px;background:transparent;color:inherit;font:inherit;font-size:14px}
+.takeover-note[hidden]{display:none}
+.frame.takeover-on{cursor:crosshair;outline:2px solid var(--ink);outline-offset:-2px}
+@media(min-width:900px){.attention-panel.docked{left:24px;transform:none;width:min(440px,38vw);bottom:24px;max-height:calc(100vh - 48px);overflow:auto}}
 @media(max-width:600px){
   .page{padding:8px 16px 200px}
   .topbar{padding:0 16px}

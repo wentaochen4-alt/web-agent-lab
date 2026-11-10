@@ -1,7 +1,9 @@
 """浏览器 Agent 的本地网页版后端。
 
-复用 run_local.py 里的 Agent（白名单、日志、卡住检测都在那里），
-这里只负责：从网页接任务、把每一步实时推给网页、等网页上的确认按钮、列出历史记录。
+Agent 本身在 agent/ 包里（白名单、日志、计划、卡住检测、登录识别都在那里），
+这里只负责接口和调用协调：从网页接任务、把每一步实时推给网页、等网页上的确认按钮、列出历史记录。
+  app/state.py     一次运行在内存里的状态（RunState）
+  app/takeover.py  接管输入和坐标转换
 
 启动：
   cd ~/Desktop/web-agent-lab
@@ -10,6 +12,7 @@
 import json
 import re
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
@@ -17,16 +20,22 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import cache_replay as cache
-import run_local as core
+from agent import login
+from agent.core import LoggedAgent
+from agent.sandbox import ALLOWED_ORIGINS, SCREEN_SIZE, SandboxedPlaywright
+from agent.trajectory import Trajectory
+from agent.upstream import LAB, EnvState
+
+from .state import RunState
+from .takeover import TAKEOVER_KEYS, TAKEOVER_KINDS, TakeoverInput, run_takeover_input
 
 STATIC = Path(__file__).resolve().parent / "static"
-RUNS = core.LAB / "runs"
+RUNS = LAB / "runs"
 RUN_ID = re.compile(r"^\d{8}-\d{6}$")
-STEP_FILE = re.compile(r"^(step_\d+\.png|live\.jpg)$")
-LIVE_INTERVAL = 1.5  # 等人处理时，每隔几秒刷新一次实时画面
+STEP_FILE = re.compile(r"^(step_\d+\.png|live\.jpg|qr\.png)$")
 
 MODELS = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"]
 THINKING = ["minimal", "low", "medium", "high"]
@@ -47,6 +56,7 @@ class RunRequest(BaseModel):
 class Decision(BaseModel):
     value: str  # continue / cancel
     plan: list[str] | None = None  # 确认计划时，带上用户改过的步骤
+    note: str | None = Field(None, max_length=500)  # 接管结束时，用户留给模型的话
 
 
 class PlanUpdate(BaseModel):
@@ -57,54 +67,7 @@ def _clean_steps(steps: list[str] | None) -> list[str]:
     return [s.strip() for s in steps or [] if s and s.strip()][:12]
 
 
-class RunState:
-    """一次运行在内存里的状态：事件列表（推给网页）和等待中的确认。"""
-
-    def __init__(self, run_id: str):
-        self.run_id = run_id
-        self.events: list[dict] = []
-        self.cond = threading.Condition()
-        self.done = False
-        self.agent: "UIAgent | None" = None
-        self._decision = "cancel"
-        self.decision_plan: list[str] | None = None
-        self._decision_ready = threading.Event()
-        self.awaiting = False
-
-    def push(self, record: dict):
-        with self.cond:
-            self.events.append(record)
-            self.cond.notify_all()
-
-    def finish(self):
-        with self.cond:
-            self.done = True
-            self.cond.notify_all()
-
-    def wait_for_decision(self, tick=None) -> str:
-        """等网页上的按钮。给了 tick 就每隔 LIVE_INTERVAL 秒调用它一次（刷新实时画面），
-        tick 返回 True 表示不用等按钮了，直接当作“继续”。"""
-        self._decision_ready.clear()
-        self.awaiting = True
-        while not self._decision_ready.wait(timeout=LIVE_INTERVAL if tick else None):
-            if tick():
-                self.decide("continue")
-        self.awaiting = False
-        return self._decision
-
-    def decide(self, value: str, plan: list[str] | None = None):
-        self._decision = value
-        self.decision_plan = plan
-        self._decision_ready.set()
-
-    def stop(self):
-        if self.agent:
-            self.agent.stop_requested = True
-        if self.awaiting:
-            self.decide("cancel")
-
-
-class LiveTrajectory(core.Trajectory):
+class LiveTrajectory(Trajectory):
     """照常写 trajectory.jsonl，同时把每条记录推给正在看的网页。"""
 
     def __init__(self, run_dir: Path, state: RunState):
@@ -116,36 +79,69 @@ class LiveTrajectory(core.Trajectory):
         self._state.push(record)
 
 
-class UIAgent(core.LoggedAgent):
+class UIAgent(LoggedAgent):
     """把命令行里的“按回车 / 输入 q”换成网页上的按钮。"""
 
     def __init__(self, state: RunState, **kwargs):
         super().__init__(**kwargs)
         self._state = state
+        self._last_qr_refresh = 0.0  # 上次自动刷新二维码的时间
 
     def _ask_user(self, kind: str, text: str, action: str | None = None, live: bool = False, done_when=None) -> str:
         """在网页上弹卡片等你决定。live=True 时一边等一边把浏览器画面实时推给网页；
         done_when(网址) 返回 True 时不用等按钮，自动继续。"""
         self._trajectory.log({"event": "awaiting", "kind": kind, "text": text, "action": action})
+        self._state.awaiting_kind = kind
         tick = None
         if live:
             frame = 0
+            qr_seen = False  # 上一帧在页面上找到了二维码；找到过才检查过期
 
             def tick() -> bool:
-                nonlocal frame
+                nonlocal frame, qr_seen
                 page = self._browser_computer._page
+                if page.is_closed():
+                    return False  # 当前标签页刚被关掉（比如登录弹窗自己关了），下一轮会换到别的标签页
+                site = login.site_for(page.url)  # 当前页面归哪个网站的登录做法管（agent/login.py）
+                inputs = self._state.take_inputs()
+                for record in inputs:
+                    run_takeover_input(page, record)
+                if inputs:
+                    try:
+                        page.wait_for_timeout(400)  # 等页面对点击、输入做出反应，再截图
+                    except Exception:
+                        return False  # 这次操作把标签页关掉了，跳过这一帧
+                now = time.monotonic()
+                if (
+                    kind == "login"
+                    and qr_seen
+                    and now - self._last_qr_refresh > login.QR_REFRESH_GAP
+                    and now - self._state.last_input_time > login.QR_PAUSE_AFTER_INPUT
+                    and site.refresh_expired_qr(page)
+                ):
+                    self._last_qr_refresh = now
                 try:
                     shot = page.screenshot(type="jpeg", quality=70)
                 except Exception:
                     return False  # 截图偶尔超时，跳过这一帧
                 (self._trajectory.run_dir / "live.jpg").write_bytes(shot)
                 frame += 1
+                record = {"event": "live", "n": frame, "url": page.url}
+                # 等登录时，页面上有二维码就另外截一张清晰的，网页上放大显示
+                qr = site.grab_qr(page) if kind == "login" else None
+                qr_seen = bool(qr)
+                if qr:
+                    (self._trajectory.run_dir / "qr.png").write_bytes(qr)
+                    record["qr"] = True
                 # 实时画面只推给正在看的网页，不写进 trajectory.jsonl（太多了）
-                self._state.push({"event": "live", "n": frame, "url": page.url})
+                self._state.push(record)
                 return bool(done_when and done_when(page.url))
 
             tick()  # 先推一帧，不用等第一个间隔
+        started = time.monotonic()
         value = self._state.wait_for_decision(tick)
+        self.human_wait_seconds += time.monotonic() - started
+        self.human_note = self._state.decision_note
         self._trajectory.log({"event": "decision", "kind": kind, "value": value})
         return value
 
@@ -170,22 +166,19 @@ class UIAgent(core.LoggedAgent):
         text = "页面一直没有变化。你可以在弹出的浏览器窗口里手动处理（比如关掉弹窗），处理完点“继续”。"
         return self._ask_user("stuck", text, live=True) == "continue"
 
-    def _wait_for_login(self, reason: str) -> bool:
-        text = "请在右边的实时画面里登录（比如用手机 App 扫码），登录成功后会自动继续。登录状态会保存在本机，下次不用再登。"
-        # 先到过登录页、后来又离开了，就当作登录成功。
-        # （模型可能在还没跳到登录页时就喊人登录，不能一开始就判成功）
-        seen_login_page = False
+    def _wait_for_pause(self, reason: str) -> bool:
+        text = "可以直接在实时画面上操作，处理完点“继续执行”；也可以写一句话，告诉它接下来怎么做。"
+        return self._ask_user("pause", text, reason or None, live=True) == "continue"
 
-        def done(url: str) -> bool:
-            nonlocal seen_login_page
-            if core.is_login_page(url):
-                seen_login_page = True
-                return False
-            return seen_login_page
+    def _wait_for_login(self, reason: str, progress: login.LoginProgress) -> bool:
+        text = (
+            "请在右边的实时画面里登录（比如用手机 App 扫码）。检测到已登录会自动继续；"
+            "检测不到时，登录后请点“已登录，继续”。登录状态会保存在本机，下次不用再登。"
+        )
+        # 只有查到明确的已登录证据才自动继续（agent/login.py）；证据不足就一直等你点按钮
+        return self._ask_user("login", text, reason, live=True, done_when=progress.confirmed) == "continue"
 
-        return self._ask_user("login", text, reason, live=True, done_when=done) == "continue"
-
-    def plan_with_user(self, initial: core.EnvState) -> bool:
+    def plan_with_user(self, initial: EnvState) -> bool:
         """先让模型出计划，等用户在网页上确认或修改；用户取消就返回 False。"""
         self._trajectory.log({"event": "planning"})
         steps = self.make_plan(initial)
@@ -225,10 +218,10 @@ def _replay(state: RunState, trajectory: LiveTrajectory, req: RunRequest, recipe
     trajectory.log({"event": "cache_hit", "steps": len(steps), "created": recipe.get("created")})
     trajectory.log({"event": "plan", "steps": [cache.describe_step(s) for s in steps], "source": "cache"})
 
-    with core.SandboxedPlaywright(
+    with SandboxedPlaywright(
         trajectory=trajectory,
         allow_all=True,
-        screen_size=core.SCREEN_SIZE,
+        screen_size=SCREEN_SIZE,
         initial_url=req.start_url,
     ) as computer:
         page = computer._page
@@ -330,7 +323,8 @@ def _run_agent(state: RunState, trajectory: LiveTrajectory, req: RunRequest) -> 
     with cache.RecordingPlaywright(
         trajectory=trajectory,
         allow_all=True,
-        screen_size=core.SCREEN_SIZE,
+        multi_tab=True,  # Agent 执行时支持多标签页；缓存回放（_replay）仍然只用一个标签页
+        screen_size=SCREEN_SIZE,
         initial_url=req.start_url,
     ) as computer:
         agent = UIRecordingAgent(
@@ -362,6 +356,8 @@ def _run_agent(state: RunState, trajectory: LiveTrajectory, req: RunRequest) -> 
                 trajectory.log({"event": "cache_saved", "steps": len(recipe["steps"])})
             else:
                 trajectory.log({"event": "cache_skipped", "reason": reason})
+        elif status == "COMPLETE" and not computer.cacheable:
+            trajectory.log({"event": "cache_skipped", "reason": "中途有人工接管或没法回放的操作"})
     return status, answer
 
 
@@ -372,7 +368,7 @@ def index():
 
 @app.get("/api/config")
 def config():
-    return {"models": MODELS, "thinking": THINKING, "local_origin": core.ALLOWED_ORIGINS[0]}
+    return {"models": MODELS, "thinking": THINKING, "local_origin": ALLOWED_ORIGINS[0]}
 
 
 @app.get("/api/runs")
@@ -470,7 +466,21 @@ def decide(run_id: str, decision: Decision):
     state = _states.get(run_id)
     if not state or not state.awaiting:
         raise HTTPException(409, "这次运行现在不需要确认")
-    state.decide("continue" if decision.value == "continue" else "cancel", decision.plan)
+    note = (decision.note or "").strip() or None
+    state.decide("continue" if decision.value == "continue" else "cancel", decision.plan, note)
+    return {"ok": True}
+
+
+@app.post("/api/runs/{run_id}/input")
+def takeover_input(run_id: str, inp: TakeoverInput):
+    """接管：网页上的点击、滚动、打字。只在“需要你登录”“它好像卡住了”“已暂停”时可用。
+    打的字不写进运行记录（可能是验证码、手机号）。"""
+    state = _states.get(run_id)
+    if not state or not state.awaiting or state.awaiting_kind not in TAKEOVER_KINDS:
+        raise HTTPException(409, "现在不能接管：只有等你登录、处理卡住或暂停时可以操作")
+    if inp.type == "key" and inp.key not in TAKEOVER_KEYS:
+        raise HTTPException(400, "不支持这个按键")
+    state.add_input(inp.model_dump())
     return {"ok": True}
 
 
@@ -484,6 +494,18 @@ def update_plan(run_id: str, update: PlanUpdate):
     if not steps:
         raise HTTPException(400, "计划至少要有一步")
     state.agent.pending_plan = steps
+    return {"ok": True}
+
+
+@app.post("/api/runs/{run_id}/pause")
+def pause(run_id: str):
+    """暂停：Agent 做完当前这一步就停下，等你接管。不在这里直接停，免得和它抢浏览器。"""
+    state = _states.get(run_id)
+    if not state or state.done or not isinstance(state.agent, UIAgent):
+        raise HTTPException(409, "现在不能暂停：只有 Agent 执行时可以暂停，缓存回放不行")
+    if state.awaiting:
+        raise HTTPException(409, "它已经停下来等你处理了")
+    state.agent.pause_requested = True
     return {"ok": True}
 
 

@@ -70,7 +70,7 @@
     </section>
   </main>
 
-  <section class="attention-panel" id="attention-panel" role="region" aria-label="待确认操作" hidden><div class="attention-copy"><strong id="attention-title">需要你确认</strong><p id="attention-text"></p></div><div class="attention-actions"><button type="button" id="attention-cancel">取消操作</button><button type="button" id="attention-continue">确认并继续</button></div><p id="attention-error" role="alert" hidden></p></section>
+  <section class="attention-panel" id="attention-panel" role="region" aria-label="待确认操作" hidden><div class="attention-copy"><strong id="attention-title">需要你确认</strong><p id="attention-text"></p></div><div class="takeover" id="takeover" hidden><img id="attention-qr" alt="页面上的二维码，用手机 App 扫码" hidden><p class="takeover-hint">可以直接在浏览器画面上点击、滚动来操作。要输入文字，在下面输入后点“输入”。</p><div class="takeover-type"><input type="text" id="takeover-text" maxlength="200" placeholder="要输入的文字" autocomplete="off"><button type="button" id="takeover-send">输入</button><button type="button" data-takeover-key="Enter">回车</button><button type="button" data-takeover-key="Backspace">退格</button></div><input type="text" class="takeover-note" id="takeover-note" maxlength="500" placeholder="告诉它接下来怎么做（可不填）" aria-label="告诉 Agent 接下来怎么做" autocomplete="off"></div><div class="attention-actions"><button type="button" id="attention-cancel">取消操作</button><button type="button" id="attention-continue">确认并继续</button></div><p id="attention-error" role="alert" hidden></p></section>
   <div class="dock">
     <form class="dock-inner" id="composer">
       <div class="options" id="options" hidden>
@@ -104,11 +104,12 @@
         <div class="composer-bar">
           <span class="hint" id="target-hint"></span>
           <button type="button" class="link" id="toggle-options">选项</button>
+          <button type="button" class="pill" id="pause" hidden>暂停</button>
           <button type="submit" class="pill dark" id="send">开始 →</button>
         </div>
       </div>
     </form>
   </div>
-  <script src="/static/app.js"></script>
+  <script type="module" src="/static/app.js"></script>
 </body>
 </html>

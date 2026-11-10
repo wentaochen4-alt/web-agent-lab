@@ -19,11 +19,15 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-import run_local as core
+from agent.core import LoggedAgent
+from agent.sandbox import SCREEN_SIZE, SandboxedPlaywright
+from agent.tools import report_plan_progress
+from agent.trajectory import Trajectory
+from agent.upstream import LAB
 from google import genai
 from google.genai import types
 
-CACHE_DIR = core.LAB / "cache"
+CACHE_DIR = LAB / "cache"
 REPLAY_TIMEOUT_MS = 3000  # 回放时等元素出现的时间，等不到就算缓存失效
 ANSWER_MODEL = "gemini-3.5-flash-lite"  # 回放后读结果页用的模型，越快越好
 
@@ -74,7 +78,7 @@ def selector_candidates(info: dict) -> list[str]:
     return cands
 
 
-class RecordingPlaywright(core.SandboxedPlaywright):
+class RecordingPlaywright(SandboxedPlaywright):
     """在 Agent 操作的同时，把每一步翻译成可回放的“配方”步骤。"""
 
     def __init__(self, **kwargs):
@@ -151,7 +155,7 @@ class PlanFailureMixin:
     failed_plan_steps = 0
 
     def handle_action(self, action, use_legacy_actions):
-        if action.name == core.report_plan_progress.__name__ and (action.args or {}).get("status") == "failed":
+        if action.name == report_plan_progress.__name__ and (action.args or {}).get("status") == "failed":
             self.failed_plan_steps += 1
         return super().handle_action(action, use_legacy_actions)
 
@@ -191,7 +195,7 @@ def check_success(query: str, answer: str | None, url: str, page_text: str, fail
     return True, ""
 
 
-class RecordingAgent(PlanFailureMixin, core.LoggedAgent):
+class RecordingAgent(PlanFailureMixin, LoggedAgent):
     def _get_safety_confirmation(self, safety):
         result = super()._get_safety_confirmation(safety)
         if result == "CONTINUE":
@@ -237,7 +241,7 @@ def replay_steps(
     page,
     steps: list[dict],
     auto_confirm: bool,
-    trajectory: core.Trajectory,
+    trajectory: Trajectory,
     confirm_fn=None,
     before_step=None,
     after_step=None,
@@ -327,7 +331,8 @@ def run_agent_and_record(args, allowed, trajectory) -> tuple[str, str | None, di
         trajectory=trajectory,
         allowed_domains=allowed,
         allow_all=args.allow_all,
-        screen_size=core.SCREEN_SIZE,
+        multi_tab=True,  # Agent 执行时支持多标签页；用到多标签页的做法不写缓存，回放仍然只用一个标签页
+        screen_size=SCREEN_SIZE,
         initial_url=args.initial_url,
     ) as computer:
         agent = RecordingAgent(
@@ -373,11 +378,11 @@ def save_recipe(recipe: dict) -> Path:
 
 
 def try_replay(args, allowed, trajectory, recipe) -> tuple[str, str | None]:
-    with core.SandboxedPlaywright(
+    with SandboxedPlaywright(
         trajectory=trajectory,
         allowed_domains=allowed,
         allow_all=args.allow_all,
-        screen_size=core.SCREEN_SIZE,
+        screen_size=SCREEN_SIZE,
         initial_url=args.initial_url,
     ) as computer:
         if not replay_steps(computer._page, recipe["steps"], args.auto_confirm, trajectory):
@@ -407,7 +412,7 @@ def main() -> int:
 
     allowed = tuple(args.allow)
     path = cache_path(args.query, args.initial_url)
-    trajectory = core.Trajectory(core.LAB / "runs" / datetime.now().strftime("%Y%m%d-%H%M%S"))
+    trajectory = Trajectory(LAB / "runs" / datetime.now().strftime("%Y%m%d-%H%M%S"))
     trajectory.log({"event": "start", "query": args.query, "model": args.model, "initial_url": args.initial_url})
     started = time.time()
     mode, status, answer = "AGENT", None, None
