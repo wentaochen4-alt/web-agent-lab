@@ -30,6 +30,15 @@
     <!-- 历史记录 -->
     <section id="history-view" hidden>
       <h1 class="display">历史</h1>
+      <div class="history-bar">
+        <input id="history-search" class="history-search" type="search" placeholder="搜索历史任务…" autocomplete="off" aria-label="搜索历史任务">
+        <div class="tabs" id="history-filter" role="radiogroup" aria-label="状态筛选">
+          <button type="button" role="radio" aria-checked="true" data-filter="all">全部</button>
+          <button type="button" role="radio" aria-checked="false" data-filter="done">已完成</button>
+          <button type="button" role="radio" aria-checked="false" data-filter="other">未完成</button>
+        </div>
+        <span class="history-count" id="history-count"></span>
+      </div>
       <div class="rows" id="history"></div>
     </section>
 
@@ -55,7 +64,7 @@
           </div>
         </div>
         <div class="right">
-          <div class="screen-toolbar"><span>浏览器画面</span><div><button type="button" class="screen-tool" id="screen-zoom-out" aria-label="缩小截图">−</button><button type="button" class="screen-tool" id="screen-zoom-reset" aria-label="重置截图缩放">100%</button><button type="button" class="screen-tool" id="screen-zoom-in" aria-label="放大截图">＋</button></div></div>
+          <div class="screen-toolbar"><span>浏览器画面</span><div class="screen-tools"><button type="button" class="screen-tool" id="screen-prev" aria-label="上一步截图" disabled>‹</button><button type="button" class="screen-tool" id="screen-next" aria-label="下一步截图" disabled>›</button><span class="tool-sep" aria-hidden="true"></span><button type="button" class="screen-tool" id="screen-zoom-out" aria-label="缩小截图">−</button><button type="button" class="screen-tool" id="screen-zoom-reset" aria-label="重置截图缩放">100%</button><button type="button" class="screen-tool" id="screen-zoom-in" aria-label="放大截图">＋</button></div></div>
           <div class="frame" id="screen">
             <div class="shot-transform" id="shot-transform"><img id="shot" alt="Agent 当前看到的网页"><span class="click-ring" id="ring" hidden></span></div>
             <div class="frame-empty" id="screen-empty">画面会出现在这里</div>

@@ -4,7 +4,7 @@
 import { $, el, hostOf, markdown } from "./util.js";
 import { THINKING_LABEL, freshView, state } from "./state.js";
 import { renderMeta, setStatus, show, updateSendButton } from "./ui.js";
-import { addShot, hideAttention, resetShotZoom, setMobileTab, showAttention, showLive } from "./screen.js";
+import { addShot, hideAttention, resetShotZoom, setMobileTab, showAttention, showLive, syncShotNav } from "./screen.js";
 import { addAction, addAwaitCard, addCard, addNote, replayTitle, resolveCard } from "./log.js";
 import { planAwaiting, planDecided, planProgress, renderPlan, setPlan } from "./plan.js";
 
@@ -29,6 +29,7 @@ export function openRun(id, live) {
   show("run");
   hideAttention();
   resetShotZoom();
+  syncShotNav();
   setMobileTab("screen");
   renderMeta();
   updateSendButton();
@@ -52,6 +53,8 @@ function handle(e) {
   switch (e.event) {
     case "start":
       view.startTime = e.time;
+      view.query = e.query || "";
+      view.startUrl = e.initial_url || "";
       $("title").textContent = e.query;
       view.meta = {
         host: e.initial_url ? hostOf(e.initial_url) : "",

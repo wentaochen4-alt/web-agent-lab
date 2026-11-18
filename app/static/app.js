@@ -11,10 +11,10 @@
 
 import { $, el, hostOf, pad, store } from "./util.js";
 import { THINKING_LABEL, opts, state } from "./state.js";
-import { renderMeta, show, updateSendButton } from "./ui.js";
+import { renderMeta, setReuseHandler, show, updateSendButton } from "./ui.js";
 import { initScreen } from "./screen.js";
 import { openRun } from "./events.js";
-import { refreshHistory } from "./history.js";
+import { initHistory, refreshHistory } from "./history.js";
 
 // 首页的示例任务。只是示例：Agent 不限于这些网站和任务类型
 const EXAMPLES = [
@@ -23,6 +23,12 @@ const EXAMPLES = [
     sub: "本地测试站 · 填表并提交",
     query: "在这个会议室预订网站上，预订 A 会议室：日期 2026-11-05，下午时段，预订人填写“测试用户”。提交后告诉我预约编号。",
     url: "http://127.0.0.1:8770/index.html",
+  },
+  {
+    title: "模拟商城选购跑鞋",
+    sub: "本地模拟商城 · 搜索选规格加购结账",
+    query: "在商城里买 2 双评分 4.5 及以上、有黑色的跑步鞋里最便宜的那款，选黑色 42 码，收货人填测试用户，电话 13800000000，地址上海市浦东新区测试路 1 号，标准配送、货到付款，下单后告诉我订单号。",
+    url: "http://127.0.0.1:8771/index.html",
   },
   {
     title: "查维基百科",
@@ -119,6 +125,38 @@ function init() {
   });
 
   initScreen();
+  initHistory();
+  setReuseHandler((query, url) => {
+    goHome();
+    $("query").value = query;
+    if (url) opts.url = url;
+    syncOptions();
+    autoGrow();
+    $("query").focus();
+  });
+
+  // 点输入栏外面关掉选项抽屉；Esc 关闭选项，/ 聚焦输入框
+  document.addEventListener("click", (e) => {
+    if ($("options").hidden) return;
+    if (!e.target.closest(".dock-inner")) $("options").hidden = true;
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !$("options").hidden) {
+      $("options").hidden = true;
+      return;
+    }
+    const tag = document.activeElement?.tagName || "";
+    if (e.key === "/" && !/^(INPUT|TEXTAREA|SELECT)$/.test(tag) && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      if (!$("history-view").hidden) {
+        e.preventDefault();
+        $("history-search").focus();
+      } else if (!$("home-view").hidden) {
+        e.preventDefault();
+        $("query").focus();
+      }
+    }
+  });
+
   updateSendButton();
   show("home");
 }

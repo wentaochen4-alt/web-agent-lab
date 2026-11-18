@@ -20,6 +20,7 @@ export function addShot(e) {
   view.shots.push({ url: e.url, src: `/api/runs/${view.id}/files/${e.file}`, ring: null });
   const thumb = el("button", "thumb");
   thumb.type = "button";
+  thumb.title = `第 ${index + 1} 张截图`;
   thumb.setAttribute("aria-label", `第 ${index + 1} 张截图`);
   const img = el("img");
   img.src = view.shots[index].src;
@@ -32,7 +33,27 @@ export function addShot(e) {
   });
   $("filmstrip").append(thumb);
   if (view.following) showShot(index);
-  else $("counter").textContent = `${pad(view.selected + 1)} / ${pad(view.shots.length)}`;
+  else {
+    $("counter").textContent = `${pad(view.selected + 1)} / ${pad(view.shots.length)}`;
+    syncShotNav();
+  }
+}
+
+export function syncShotNav() {
+  const view = state.view;
+  const total = view ? view.shots.length : 0;
+  const idx = view ? view.selected : -1;
+  $("screen-prev").disabled = total < 2 || idx <= 0;
+  $("screen-next").disabled = total < 2 || idx >= total - 1;
+}
+
+export function stepShot(delta) {
+  const view = state.view;
+  if (!view || !view.shots.length) return;
+  const next = Math.max(0, Math.min(view.shots.length - 1, view.selected + delta));
+  if (next === view.selected && (view.following || !view.running)) return;
+  view.following = Boolean(view.running && !state.attention && next === view.shots.length - 1);
+  showShot(next);
 }
 
 export function showShot(index) {
@@ -57,9 +78,12 @@ export function showShot(index) {
   [...$("filmstrip").children].forEach((t, i) => t.classList.toggle("selected", i === index));
   $("filmstrip").children[index]?.scrollIntoView({ block: "nearest", inline: "nearest" });
   for (const row of $("log").querySelectorAll(".act[data-shot]")) {
-    row.classList.toggle("selected", !view.following && Number(row.dataset.shot) === index);
+    const on = !view.following && Number(row.dataset.shot) === index;
+    row.classList.toggle("selected", on);
+    if (on) row.scrollIntoView({ block: "nearest" });
   }
   $("follow-live").hidden = view.following || !view.running;
+  syncShotNav();
 }
 
 // 等你登录或接管时，后端每隔一两秒推一帧浏览器的实时画面（不进胶片条，只占用大图）
@@ -82,6 +106,7 @@ export function showLive(e) {
     $("ring").hidden = true;
   }
   for (const t of $("filmstrip").children) t.classList.remove("selected");
+  syncShotNav();
 }
 
 // ---------- 手机上的视图切换、截图放大 ----------
@@ -255,12 +280,36 @@ async function submitAttention(value) {
 // ---------- 绑定事件：整个页面只调用一次（由 app.js 的 init 调用） ----------
 export function initScreen() {
   for (const b of document.querySelectorAll("[data-mobile-tab]")) b.addEventListener("click", () => setMobileTab(b.dataset.mobileTab));
+  $("screen-prev").addEventListener("click", () => stepShot(-1));
+  $("screen-next").addEventListener("click", () => stepShot(1));
   $("screen-zoom-in").addEventListener("click", () => changeShotZoom(0.25));
   $("screen-zoom-out").addEventListener("click", () => changeShotZoom(-0.25));
   $("screen-zoom-reset").addEventListener("click", resetShotZoom);
   $("follow-live").addEventListener("click", () => {
     state.view.following = true;
     showShot(state.view.shots.length - 1);
+  });
+
+  // 在运行页用左右方向键回看截图步骤，Esc 重置缩放或回到实时画面
+  document.addEventListener("keydown", (event) => {
+    if ($("run-view").hidden || !state.view) return;
+    if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName || "")) return;
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      stepShot(-1);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      stepShot(1);
+    } else if (event.key === "Escape") {
+      if ($("options") && !$("options").hidden) return;
+      if (shotZoom > 1) {
+        resetShotZoom();
+      } else if (!state.view.following && state.view.running && state.view.shots.length) {
+        state.view.following = true;
+        showShot(state.view.shots.length - 1);
+      }
+    }
   });
 
   const screenFrame = $("screen");

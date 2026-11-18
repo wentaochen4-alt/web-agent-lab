@@ -105,8 +105,31 @@ button { cursor: pointer; }
 .row .num { font-family: var(--serif); font-size: 22px; color: var(--ink-4); }
 .row .row-title { font-size: 16px; }
 .row .row-sub { display: block; margin-top: 2px; font-size: 12.5px; color: var(--ink-3); }
-.row .row-side { font-size: 12.5px; color: var(--ink-3); white-space: nowrap; }
+.row .row-side { display: inline-flex; align-items: center; gap: 2px; font-size: 12.5px; color: var(--ink-3); white-space: nowrap; }
+.row .row-side .state { color: inherit; }
 .row-empty { padding: 18px 0; color: var(--ink-4); }
+
+.history-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 24px;
+  margin-bottom: 18px;
+}
+.history-search {
+  flex: 1 1 240px;
+  min-width: 0;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+  font-size: 14px;
+  outline: none;
+}
+.history-search:focus { border-bottom-color: var(--ink); }
+.history-count { margin-left: auto; font-size: 12px; color: var(--ink-4); white-space: nowrap; }
 
 /* ---------- 一次运行 ---------- */
 .run-title {
@@ -466,8 +489,10 @@ textarea::placeholder, input::placeholder { color: var(--ink-4); }
 
 /* Agent console v2: mobile-first interaction, while preserving desktop layout. */
 .screen-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;font-size:13px;color:var(--ink-3)}
-.screen-toolbar>div{display:flex;gap:5px}
+.screen-tools{display:flex;align-items:center;gap:5px}
 .screen-tool{min-height:38px;min-width:42px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:16px}
+.screen-tool:disabled{opacity:.35;cursor:default}
+.tool-sep{width:1px;height:18px;background:var(--line);margin:0 3px}
 #screen-zoom-reset{min-width:58px;font-size:12px}
 .frame{touch-action:pan-y}
 .shot-transform{position:absolute;inset:0;transform-origin:center center;will-change:transform}

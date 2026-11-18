@@ -56,6 +56,8 @@ export function freshView(id, live) {
     following: true,
     thought: null,
     startTime: null,
+    query: "",
+    startUrl: "",
     meta: {},
     status: live ? "RUNNING" : "UNKNOWN",
     cards: [],

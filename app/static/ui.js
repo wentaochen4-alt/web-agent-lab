@@ -12,6 +12,12 @@ export function show(page) {
   window.scrollTo({ top: 0 });
 }
 
+let onReuseTask = null;
+
+export function setReuseHandler(fn) {
+  onReuseTask = fn;
+}
+
 // ---------- 状态栏 ----------
 export function setStatus(key) {
   state.view.status = key;
@@ -28,6 +34,12 @@ export function renderMeta(override) {
   meta.append(el("span", "state " + cls, text));
   for (const item of [view.meta.host, view.meta.model, view.meta.thinking]) {
     if (item) meta.append(el("span", null, item));
+  }
+  if (!override && !view.running && view.query && onReuseTask) {
+    const reuse = el("button", "link", "以此任务新建 →");
+    reuse.type = "button";
+    reuse.addEventListener("click", () => onReuseTask(view.query, view.startUrl));
+    meta.append(reuse);
   }
 }
 
